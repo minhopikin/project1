@@ -1,0 +1,9 @@
+EXPLAIN ANALYZE WITH temp_table AS (  
+  SELECT plan_name, ROW_NUMBER() OVER () AS row_number  
+  FROM payment.ram_temp_humana_combined  
+  ORDER BY plan_name  
+)  
+UPDATE payment.ram_temp_humana_combined AS t  
+SET SEQ_HUMANA_ID = tt.row_number  
+FROM temp_table AS tt  
+WHERE t.plan_name = tt.plan_name;
