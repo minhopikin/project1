@@ -24,3 +24,42 @@ UPDATE t
 SET SEQ_HUMANA_ID = rt.row_number
 FROM payment.ram_temp_humana_combined AS t
 JOIN RankedTable AS rt ON t.plan_name = rt.plan_name;
+
+-----------------------lag monitoring-----------------------
+#!/bin/bash
+
+# PostgreSQL connection details
+PG_USER="your_pg_user"
+PG_PASSWORD="your_pg_password"
+PG_HOST="your_pg_host"
+PG_PORT="your_pg_port"
+DB_NAME="your_database_name"
+
+# Email configuration
+TO_EMAIL="your_email@example.com"
+FROM_EMAIL="your_email@example.com"
+SMTP_SERVER="your_smtp_server"
+SMTP_PORT="587"
+SMTP_USER="your_smtp_user"
+SMTP_PASSWORD="your_smtp_password"
+
+# Replication lag threshold in seconds
+LAG_THRESHOLD=300
+
+# Get replication lag from PostgreSQL
+replication_lag=$(psql -h $PG_HOST -p $PG_PORT -U $PG_USER -d $DB_NAME -c "SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), pg_stat_replication.sent_lsn) FROM pg_stat_replication;")
+
+# Check if replication lag exceeds the threshold
+if [ "$replication_lag" -gt "$LAG_THRESHOLD" ]; then
+    # Send alert email
+    SUBJECT="Replication Lag Alert"
+    BODY="Replication lag has exceeded the threshold. Current lag: $replication_lag seconds."
+    
+    echo -e "Subject:$SUBJECT\n$BODY" | \
+    ssmtp -v -S smtp=$SMTP_SERVER:$SMTP_PORT -au $SMTP_USER -ap $SMTP_PASSWORD -m "smtp://" -f $FROM_EMAIL $TO_EMAIL
+
+    echo "Alert email sent."
+else
+    echo "Replication lag within threshold. No alert sent."
+fi
+
