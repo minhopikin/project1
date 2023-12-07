@@ -55,3 +55,25 @@ JOIN pg_index AS PI
 ON PSUI.IndexRelid = PI.IndexRelid 
 WHERE PSUI.idx_scan = 0 
 AND PI.indisunique IS FALSE;
+----------------------------------------
+-----unused tables------------------------
+Select relname from
+pg_stat_user_tables
+WHERE (idx_tup_fetch + seq_tup_read)= 0; -- you can define a threshold here
+OR
+2. Empty tables can be retrieved by checking the number of live tup i.e
+Select relname from
+pg_stat_user_tables
+WHERE n_live_tup = 0; 
+OR
+3. table duplicates i.e the table can be found in more than one schema 
+
+SELECT
+n.nspname as "Schema",
+c.relname as "Name" FROM pg_catalog.pg_class c
+LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relname IN (SELECT relname FROM pg_catalog.pg_class
+WHERE relkind IN ('r')
+GROUP BY relname
+Having count(relname) > 1)
+ORDER BY 2,1;
