@@ -57,9 +57,13 @@ WHERE PSUI.idx_scan = 0
 AND PI.indisunique IS FALSE;
 ----------------------------------------
 -----unused tables------------------------
+--Checking the number of sequential and indexed access to the table gives a good hint if the table is in use or deprecated.  
+--The following select statement retrieve the tables that might be deprecated.
+
 Select relname from
 pg_stat_user_tables
 WHERE (idx_tup_fetch + seq_tup_read)= 0; -- you can define a threshold here
+
 --OR
 --2. Empty tables can be retrieved by checking the number of live tup i.e
 Select relname from
