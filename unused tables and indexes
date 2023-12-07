@@ -18,3 +18,17 @@ WHERE
 ORDER BY 
   n.nspname,
   c.relname;
+-----------------------------------------
+SELECT
+   schemaname || ',' || relname AS table_name,
+   seq_scan,
+   idx_scan,
+   n_live_tup
+FROM
+   pg_stat_user_tables
+WHERE
+   seq_scan = 0
+    AND idx_scan = 0
+    AND n_live_tup > 0
+ORDER BY
+    n_live_tup DESC;
