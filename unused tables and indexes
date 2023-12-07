@@ -5,23 +5,16 @@ SELECT
     WHEN obj_description(c.oid, 'pg_class') IS NOT NULL THEN obj_description(c.oid, 'pg_class') 
     ELSE 'No description available' 
   END AS object_description,
-  CASE 
-    WHEN c.relkind = 'r' THEN 'table' 
-    WHEN c.relkind = 'i' THEN 'index' 
-    ELSE 'other' 
-  END AS object_type
+  'table' AS object_type
 FROM 
   pg_class c
 JOIN 
   pg_namespace n ON c.relnamespace = n.oid
 LEFT JOIN 
   pg_stat_user_tables ut ON c.oid = ut.relid
-LEFT JOIN 
-  pg_stat_user_indexes ui ON c.oid = ui.indexrelid
 WHERE 
-  c.relkind IN ('r', 'i') -- Only tables and indexes
+  c.relkind = 'r' -- Only tables
   AND ut.last_analyze IS NULL
-  AND ui.last_analyze IS NULL
 ORDER BY 
   n.nspname,
   c.relname;
