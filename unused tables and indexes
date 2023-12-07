@@ -20,7 +20,7 @@ WHERE
     SELECT 1 
     FROM pg_stat_statements 
     WHERE 
-      (pg_stat_statements.query ~* c.relname OR pg_stat_statements.query ~* c.relname || '_idx') 
+      (pg_stat_statements.query ~* (c.relname || '_idx'))::boolean 
       AND pg_stat_statements.last_executed < current_timestamp - interval '1 week' -- You can adjust the time threshold as needed
   )
 ORDER BY 
