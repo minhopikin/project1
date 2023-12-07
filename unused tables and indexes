@@ -60,13 +60,13 @@ AND PI.indisunique IS FALSE;
 Select relname from
 pg_stat_user_tables
 WHERE (idx_tup_fetch + seq_tup_read)= 0; -- you can define a threshold here
-OR
-2. Empty tables can be retrieved by checking the number of live tup i.e
+--OR
+--2. Empty tables can be retrieved by checking the number of live tup i.e
 Select relname from
 pg_stat_user_tables
 WHERE n_live_tup = 0; 
-OR
-3. table duplicates i.e the table can be found in more than one schema 
+--OR
+---3. table duplicates i.e the table can be found in more than one schema 
 
 SELECT
 n.nspname as "Schema",
