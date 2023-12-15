@@ -20,3 +20,20 @@ WHERE
 ORDER BY
     n.nspname,
     t.relname;
+---------------------------------------------------
+SELECT
+    n.nspname AS schema_name,
+    t.relname AS table_name,
+    pg_total_relation_size(t.oid) AS total_size_bytes,
+    pg_total_relation_size(t.oid) / (1024.0 * 1024.0) AS total_size_mb,
+    t.reltuples AS row_count
+FROM
+    pg_class t
+JOIN
+    pg_namespace n ON t.relnamespace = n.oid
+WHERE
+    t.relkind = 'r' -- Only tables (not indexes or other objects)
+ORDER BY
+    n.nspname,
+    t.relname;
+
