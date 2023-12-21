@@ -96,6 +96,9 @@ CREATE TABLE sales_q2 PARTITION OF sales
 This is a basic overview of table partitioning in PostgreSQL. The specific implementation may vary based on your use case and requirements. Always refer to the PostgreSQL documentation for the most up-to-date and detailed information.
 
 
-
+------
+ERROR:  no partition of relation "ram_nice_payment_additional_data" found for row
+DETAIL:  Partition key of the failing row contains (plan_name) = (UHCSB).
+SQL state: 23514
 
 
