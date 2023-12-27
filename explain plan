@@ -18,3 +18,38 @@
 "        ->  Hash  (cost=1.75..1.75 rows=1 width=124)"
 "              ->  Index Scan using ram_temp_humana_rsrv_idx2 on ram_temp_humana_rsrv r  (cost=0.12..1.75 rows=1 width=124)"
 "                    Index Cond: (((plan_name)::text = 'HUMNM'::text) AND (seq_payment_header_id = 112529))"
+-----------------------------------------------------------------------------------------------------------------------
+
+QUERY PLAN
+Update on ram_payment_detail p  (cost=29868.47..45131143.66 rows=1952 width=1923)
+  InitPlan 3 (returns $10)
+    ->  Unique  (cost=2.34..2.35 rows=1 width=6)
+          ->  Sort  (cost=2.34..2.34 rows=1 width=6)
+                Sort Key: ram_revenue_stream.plan_name
+                ->  Seq Scan on ram_revenue_stream  (cost=0.00..2.33 rows=1 width=6)
+                      Filter: (((company_code)::text = 'UHCAG'::text) AND ((revenue_type)::text = 'CAP'::text))
+  InitPlan 4 (returns $11)
+    ->  Unique  (cost=2.34..2.35 rows=1 width=8)
+          ->  Sort  (cost=2.34..2.34 rows=1 width=8)
+                Sort Key: ram_revenue_stream_1.seq_revenue_id
+                ->  Seq Scan on ram_revenue_stream ram_revenue_stream_1  (cost=0.00..2.33 rows=1 width=8)
+                      Filter: (((company_code)::text = 'UHCAG'::text) AND ((revenue_type)::text = 'CAP'::text))
+  ->  Bitmap Heap Scan on ram_payment_detail p  (cost=29863.77..45131138.96 rows=1952 width=1923)
+        Recheck Cond: ((seq_revenue_id = $11) AND (subscriber_id IS NULL) AND (payment_start_date >= to_date('20191231'::text, 'yyyyMMdd'::text)) AND (payment_start_date <= to_date('20230202'::text, 'yyyyMMdd'::text)))
+        Filter: ((status <> ALL ('{C,V}'::bpchar[])) AND ((plan_name)::text = ($10)::text))
+        ->  BitmapAnd  (cost=29863.77..29863.77 rows=56609 width=0)
+              ->  Bitmap Index Scan on ram_payment_detail_idx6  (cost=0.00..6392.29 rows=757207 width=0)
+                    Index Cond: (seq_revenue_id = $11)
+              ->  Bitmap Index Scan on ram_payment_detail_idx2  (cost=0.00..23470.26 rows=1641657 width=0)
+                    Index Cond: ((subscriber_id IS NULL) AND (payment_start_date >= to_date('20191231'::text, 'yyyyMMdd'::text)) AND (payment_start_date <= to_date('20230202'::text, 'yyyyMMdd'::text)))
+        SubPlan 2 (returns $5,$6,$7,$8,$9)
+          ->  Aggregate  (cost=23073.85..23073.89 rows=1 width=168)
+                InitPlan 1 (returns $2)
+                  ->  Unique  (cost=3.62..3.63 rows=1 width=7)
+                        ->  Sort  (cost=3.62..3.63 rows=1 width=7)
+                              Sort Key: h.source_code
+                              ->  Seq Scan on ram_revenue_stream_history h  (cost=0.00..3.61 rows=1 width=7)
+                                    Filter: ((p.payment_start_date >= effective_date) AND ((company_code)::text = 'UHCOH'::text) AND ((revenue_type)::text = 'CAP'::text) AND (p.payment_start_date <= COALESCE(term_date, to_date('12/31/9999'::text, 'MM/DD/YYYY'::text))))
+                ->  Index Scan using member_demographics_pk01 on ram_member_demographics md  (cost=0.42..23070.08 rows=19 width=10)
+                      Index Cond: (((plan_name)::text = (p.plan_name)::text) AND (effective_date <= p.payment_start_date))
+                      Filter: ((p.payment_start_date <= term_date) AND ((source_code)::text = ($2)::text) AND ((CASE WHEN ((plan_name)::text ~~ 'UHC%'::text) THEN ("substring"((alternate_id)::text, 1, 9))::character varying ELSE alternate_id END)::text = (p.alternate_id)::text))
