@@ -1,0 +1,30 @@
+-- Get CPU usage for the entire PostgreSQL instance
+SELECT
+  usename,
+  pg_stat_bgwriter.checkpoints_timed,
+  pg_stat_bgwriter.checkpoints_req,
+  pg_stat_bgwriter.buffers_checkpoint,
+  pg_stat_bgwriter.buffers_clean,
+  pg_stat_bgwriter.maxwritten_clean,
+  pg_stat_bgwriter.buffers_backend,
+  pg_stat_bgwriter.buffers_alloc,
+  pg_stat_bgwriter.buffers_backend_fsync,
+  pg_stat_bgwriter.buffers_backend_clean,
+  pg_stat_bgwriter.buffers_backend_alloc
+FROM
+  pg_stat_bgwriter;
+
+-- Get CPU usage for individual database sessions
+SELECT
+  pid,
+  usename,
+  application_name,
+  state,
+  query,
+  backend_start,
+  now() - pg_stat_activity.backend_start AS duration,
+  pg_stat_activity.cpu,
+  pg_stat_activity.backend_xid,
+  pg_stat_activity.backend_xmin
+FROM
+  pg_stat_activity;
