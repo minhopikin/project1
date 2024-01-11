@@ -1,0 +1,40 @@
+ocramdb1@rp000050143:/home/ocramdb1
+$ cat /etc/repmgr/13/repmgr.conf
+# CHANGE: node id must be unique  node_id=1 for primary node, node_id=2 HA node, node_id=3 DR node
+
+node_id=1
+
+# node_name = host = hostname
+node_name=rp000050143
+
+# CHANGE: Primary (datacenter A) should be 100, secondary HA (datacenter A) 90, DR (datacenter B) 80
+priority=100
+
+#Connection Info
+conninfo='host=rp000050143 user=repmgr dbname=repmgr connect_timeout=10'
+data_directory='/var/lib/pgsql/13/data/'
+ssh_options='-q -o ConnectTimeout=10'
+
+log_level='INFO'
+log_file='/var/lib/pgsql/log/repmgr.log'
+log_status_interval=300
+
+pg_bindir='/usr/pgsql-13/bin/'
+repmgr_bindir='/usr/pgsql-13/bin/'
+repmgrd_pid_file='/var/lib/pgsql/repmgr/repmgrd-13.pid'
+
+# repmgrd config
+monitor_interval_secs=2
+reconnect_attempts=6
+reconnect_interval=10
+connection_check_type=connection
+
+failover=automatic
+promote_command='/var/lib/pgsql/bin/pg_postgresql_repmgrd_promote'
+follow_command='/var/lib/pgsql/bin/pg_postgresql_repmgrd_follow %n'
+
+
+# CHANGE: backup stanza name for cluster stanza = primary where backup has been take
+restore_command='pgbackrest --stanza=rp000050145 archive-get %f %p'
+primary_visibility_consensus=true
+standby_disconnect_on_failover=true
