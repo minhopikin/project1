@@ -1,0 +1,16 @@
+------------top queries by execution time
+SELECT
+  d.datname, round(s.total_exec_time::numeric, 2) AS total_exec_time, s.calls, s.rows,
+  round(s.total_exec_time::numeric / calls, 2) AS avg_time,
+  round((100 * s.total_exec_time / sum(s.total_exec_time::numeric) OVER ())::numeric, 2) AS percentage_cpu,
+  substring(s.query, 1, 50) AS short_query
+FROM pg_stat_statements s JOIN pg_database d ON (s.dbid = d.oid)
+ORDER BY percentage_cpu DESC
+LIMIT 10;
+
+-------------------------------
+select query, calls, (total_time/calls)::integer as avg_time_ms 
+from pg_stat_statements
+where calls > 1000
+order by avg_time_ms desc
+limit 100;
