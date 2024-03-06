@@ -1,254 +1,122 @@
-CREATE OR REPLACE FUNCTION payment.cosmos_upsert_payment(i_planname character varying, i_seqpaymentheaderid integer)
- RETURNS integer
- LANGUAGE plpgsql
-AS $function$
-declare
-	cur_alt_id cursor for 
-	select
-		distinct alternate_id, payment_start_date 
-	from
-		payment.ram_payment_detail
-	where
-		alternate_id <> ''
-		and plan_name = i_planname
-		and seq_payment_header_id = i_seqpaymentheaderid;
 
-	i_alternate_id text;	
-	i_seq_revenue_id integer;
-	i_revenue_start_date Date;
-	i_pop_rate float;
-	i_act_pay_cap_amt float;
-	i_exp_pay_cap_amt float;
-	rec record;
 
-	i_status_err int;
-	i_status_pnb int;
-	i_status_pdl int;
-	i_status_pdh int;
-	i_status_psa int;
+dev
 
-begin
---	i_seqpaymentheaderid := 127529;
---	i_planname := 'UHCUT';
---	i_seq_revenue_id := '120018';
-	
-	select seq_revenue_id into strict i_seq_revenue_id from payment.ram_revenue_stream rrs where plan_name = i_planname;
-	
-	select code_value into strict i_status_err from recon.ram_code_master rcm where code_type = 'RECONSTATUS' and code_desc like 'ERR%';
-	select code_value into strict i_status_pnb from recon.ram_code_master rcm where code_type = 'RECONSTATUS' and code_desc like 'PNB%';
-	select code_value into strict i_status_pdl from recon.ram_code_master rcm where code_type = 'RECONSTATUS' and code_desc like 'PDL%';
-	select code_value into strict i_status_pdh from recon.ram_code_master rcm where code_type = 'RECONSTATUS' and code_desc like 'PDH%';
-	select code_value into strict i_status_psa from recon.ram_code_master rcm where code_type = 'RECONSTATUS' and code_desc like 'PSA%';
+GroupAggregate  (cost=6.34..6.41 rows=1 width=54)
+  Group Key: p.seq_revenue_id, p.payment_start_date, p.alternate_id
+  ->  Sort  (cost=6.34..6.34 rows=1 width=67)
+        Sort Key: p.seq_revenue_id, p.payment_start_date, p.alternate_id
+        ->  Subquery Scan on p  (cost=6.24..6.33 rows=1 width=67)
+              ->  GroupAggregate  (cost=6.24..6.30 rows=1 width=99)
+                    Group Key: ram_payment_detail.plan_name, ram_payment_detail.seq_revenue_id, ram_payment_detail.alternate_id, ram_payment_detail.record_type, (abs(ram_payment_detail.payment_amount)), ram_payment_detail.percent_of_premium_rate, ram_payment_detail.payment_start_date
+                    ->  Sort  (cost=6.24..6.24 rows=1 width=73)
+                          Sort Key: ram_payment_detail.record_type, (abs(ram_payment_detail.payment_amount)), ram_payment_detail.percent_of_premium_rate
+                          ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_plan_code_payment_s_idx on ram_payment_detail_uhcin ram_payment_detail  (cost=0.43..6.23 rows=1 width=73)
+                                Index Cond: ((seq_revenue_id = '120028'::bigint) AND (payment_start_date = '2023-08-01'::date))
+                                Filter: (((alternate_id)::text = '8383656'::text) AND ((plan_name)::text = 'UHCIN'::text))
 
-  	open cur_alt_id;
-	loop
-		fetch cur_alt_id
-		into
-		i_alternate_id, i_revenue_start_date;
-	exit
-	when not found;
 
-	begin
+prod
+
+GroupAggregate  (cost=6.34..6.41 rows=1 width=54)
+  Group Key: p.seq_revenue_id, p.payment_start_date, p.alternate_id
+  ->  Sort  (cost=6.34..6.35 rows=1 width=67)
+        Sort Key: p.seq_revenue_id, p.payment_start_date, p.alternate_id
+        ->  Subquery Scan on p  (cost=6.24..6.33 rows=1 width=67)
+              ->  GroupAggregate  (cost=6.24..6.30 rows=1 width=99)
+                    Group Key: ram_payment_detail.plan_name, ram_payment_detail.seq_revenue_id, ram_payment_detail.alternate_id, ram_payment_detail.record_type, (abs(ram_payment_detail.payment_amount)), ram_payment_detail.percent_of_premium_rate, ram_payment_detail.payment_start_date
+                    ->  Sort  (cost=6.24..6.25 rows=1 width=73)
+                          Sort Key: ram_payment_detail.record_type, (abs(ram_payment_detail.payment_amount)), ram_payment_detail.percent_of_premium_rate
+                          ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_alternate_id_paymen_idx on ram_payment_detail_uhcin ram_payment_detail  (cost=0.43..6.23 rows=1 width=73)
+                                Index Cond: ((seq_revenue_id = '120028'::bigint) AND ((alternate_id)::text = '8383656'::text) AND (payment_start_date = '2023-08-01'::date))
+                                Filter: ((plan_name)::text = 'UHCIN'::text)
+								
+								
+								
+dev
+
+GroupAggregate  (cost=0.43..6.27 rows=1 width=86)
+  Group Key: ram_payment_detail.seq_revenue_id, ram_payment_detail.payment_start_date, ram_payment_detail.alternate_id
+  ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_plan_code_payment_s_idx on ram_payment_detail_uhcin ram_payment_detail  (cost=0.43..6.22 rows=1 width=34)
+        Index Cond: ((seq_revenue_id = '120028'::bigint) AND (payment_start_date = '2023-08-01'::date))
+        Filter: (((plan_name)::text = 'UHCIN'::text) AND ((alternate_id)::text = '8383656'::text))
 		
-	--calculate pop rate
-	select
-		coalesce(avg( case when p.plan_name not in ('HUMNY', 'HUMAZ', 'HUMCS', 'HUMNW', 'HUMNM', 'HUMNV') and p.record_type = '1R' and p.sum <> 0 then p.percent_of_premium_rate 
-		when p.plan_name in ('HUMNY', 'HUMAZ', 'HUMCS', 'HUMNW', 'HUMNM', 'HUMNV') and p.percent_of_premium_rate <> 0 and p.sum <> 0 then p.percent_of_premium_rate end ), 0) into strict i_pop_rate
-	from
-	(
-		select
-			seq_revenue_id,
-			alternate_id,
-			plan_name,
-			record_type,
-			percent_of_premium_rate,
-			payment_start_date,
-			sum(payment_amount) as sum
-		from
-			payment.ram_payment_detail
-		where alternate_id = i_alternate_id
-			and plan_name = i_planname
-			and seq_revenue_id = i_seq_revenue_id
-			and payment_start_date = i_revenue_start_date
-		group by
-			plan_name,
-			seq_revenue_id,
-			alternate_id ,
-			record_type,
-			abs(payment_amount),
-			percent_of_premium_rate,
-			payment_start_date) p
-	group by
-		p.seq_revenue_id,
-		p.payment_start_date,
-		p.alternate_id ;
+		
+prod
 
-	--calculate expected and actual pay cap amts
-	select
-		sum(payment_amount),
-		sum(expected_pay_cap_amt) into strict i_act_pay_cap_amt, i_exp_pay_cap_amt
-	from
-		payment.ram_payment_detail
-	where
-		plan_name = i_planname
-		and payment_start_date = i_revenue_start_date
-		and seq_revenue_id = i_seq_revenue_id
-		and alternate_id = i_alternate_id
-	group by
-		seq_revenue_id,
-		payment_start_date,
-		alternate_id ;
-	exception
-	when others then
-		--log exception
-		if not exists(select 1 from recon.ram_recon_retrigger_payment where alternate_id = i_alternate_id and plan_name = i_planname and payment_start_date = i_revenue_start_date) then 
-			insert into recon.ram_recon_retrigger_payment values (i_alternate_id, i_planname,i_revenue_start_date, now(), 'Calculate pop rate or pay cap amounts: ' || sqlstate || ' ' || sqlerrm, i_seqpaymentheaderid);
-		end if;
-		continue;
-	end;
-	
-	begin
-	--fetch details
-	select
-		rpd.subscriber_id,
-		rpd.medicaid_id,
-		rpd.employee_no,
-		rpd.plan_code,
-		rpd.first_name,
-		rpd.middle_initial,
-		rpd.last_name,
-		rpd.date_of_birth,
-		rpd.gender,
-		rpd.social_sec_no,
-		rpd.risk_group,
-		rpd.payment_end_date,
-		rpd.error_code,
-		rpd.medicare_no,
-		rpd.insert_datetime, 
-		rpd.update_datetime into strict rec
-	from
-		payment.ram_payment_detail rpd,
-		payment.ram_payment_additional_data rpad2
-	where
-		rpd.seq_payment_detail_id = rpad2.seq_payment_detail_id
-		and rpd.seq_payment_header_id = i_seqpaymentheaderid
-		and rpad2.seq_payment_header_id = i_seqpaymentheaderid
-		and rpd.seq_revenue_id = i_seq_revenue_id
-		and rpd.plan_name = i_planname
-		and rpad2.plan_name = i_planname
-		and rpd.alternate_id = i_alternate_id
-		and rpd.payment_start_date = i_revenue_start_date
-		and ((rpad2.record_type = '1R'
-			and rpad2.plan_name not in ('HUMNY', 'HUMAZ', 'HUMCS', 'HUMNW', 'HUMNM', 'HUMNV'))
-		or (rpad2.plan_name in ('HUMNY', 'HUMAZ', 'HUMCS', 'HUMNW', 'HUMNM', 'HUMNV')))
-	order by
-		rpad2.cap_rec_seq desc
-	limit 1;
-	
-	exception
-		when NO_DATA_FOUND then
-	begin
-		select
-		rpd.subscriber_id,
-		rpd.medicaid_id,
-		rpd.employee_no,
-		rpd.plan_code,
-		rpd.first_name,
-		rpd.middle_initial,
-		rpd.last_name,
-		rpd.date_of_birth,
-		rpd.gender,
-		rpd.social_sec_no,
-		rpd.risk_group,
-		rpd.payment_end_date,
-		rpd.error_code,
-		rpd.medicare_no,
-		rpd.insert_datetime, 
-		rpd.update_datetime into strict rec
-	from
-		payment.ram_payment_detail rpd,
-		payment.ram_payment_additional_data rpad2
-	where
-		rpd.seq_payment_detail_id = rpad2.seq_payment_detail_id
-		and rpd.seq_payment_header_id = i_seqpaymentheaderid
-		and rpad2.seq_payment_header_id = i_seqpaymentheaderid
-		and rpd.seq_revenue_id = i_seq_revenue_id
-		and rpd.plan_name = i_planname
-		and rpad2.plan_name = i_planname
-		and rpd.alternate_id = i_alternate_id
-		and rpd.payment_start_date = i_revenue_start_date
-	order by
-		rpad2.cap_rec_seq desc
-	limit 1;
-	exception
-		when others then
-		if not exists(select 1 from recon.ram_recon_retrigger_payment where alternate_id = i_alternate_id and plan_name = i_planname and payment_start_date = i_revenue_start_date) then 
-			insert into recon.ram_recon_retrigger_payment values (i_alternate_id, i_planname,i_revenue_start_date, now(), 'Fetch details: ' || sqlstate || ' ' || sqlerrm, i_seqpaymentheaderid);
-		end if;
-		continue;
-	end;
-	when others then
-	if not exists(select 1 from recon.ram_recon_retrigger_payment where alternate_id = i_alternate_id and plan_name = i_planname and payment_start_date = i_revenue_start_date) then 
-		insert into recon.ram_recon_retrigger_payment values (i_alternate_id, i_planname,i_revenue_start_date, now(), 'Fetch details: ' || sqlstate || ' ' || sqlerrm, i_seqpaymentheaderid);
-	end if;
-	continue;
-	end;
+GroupAggregate  (cost=0.43..6.28 rows=1 width=86)
+  Group Key: ram_payment_detail.seq_revenue_id, ram_payment_detail.payment_start_date, ram_payment_detail.alternate_id
+  ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_alternate_id_paymen_idx on ram_payment_detail_uhcin ram_payment_detail  (cost=0.43..6.23 rows=1 width=34)
+        Index Cond: ((seq_revenue_id = '120028'::bigint) AND ((alternate_id)::text = '8383656'::text) AND (payment_start_date = '2023-08-01'::date))
+        Filter: ((plan_name)::text = 'UHCIN'::text)
+		
 
-	begin	
-	--insert or update in recon
-	if exists (select 1 from recon.ram_reconciliation_detail rrd where alternate_id = i_alternate_id and revenue_start_date = i_revenue_start_date and plan_name = i_planname) then	
-		update recon.ram_reconciliation_detail set actual_pay_cap_amt = i_act_pay_cap_amt, expected_pay_cap_amt = i_exp_pay_cap_amt, payment_amount = i_pop_rate, update_user = 'RAM', update_process = 'UPSERTPAY', update_datetime = now(),
-		subscriber_id = case when subscriber_id is null or subscriber_id = '' then rec.subscriber_id else subscriber_id end, 
-		error_code = case when rec.error_code is not null then rec.error_code else error_code end,
-		recon_status = 
-		case when rec.error_code is not null or error_code is not null then i_status_err 
-			else case when invoice_amount = 0 and recon_status = i_status_pnb and i_pop_rate <> 0 then i_status_pnb 
-					  else case when i_pop_rate = invoice_amount then i_status_psa 
-								when i_pop_rate > invoice_amount then i_status_pdh 
-								else i_status_pdl 
-							end 
-				 end 
-		end,
-		pay_recon_status = 
-		case when rec.error_code is not null or error_code is not null then i_status_err 
-			 else case when i_act_pay_cap_amt = i_exp_pay_cap_amt then i_status_psa 
-			 		   when i_act_pay_cap_amt > i_exp_pay_cap_amt then i_status_pdh 
-			 		   else i_status_pdl 
-			 	  end 
-		end
-		where alternate_id = i_alternate_id and revenue_start_date = i_revenue_start_date and plan_name = i_planname;
-	
-	else
-		insert into recon.ram_reconciliation_detail (seq_recon_id , seq_revenue_id, subscriber_id, revenue_start_date, revenue_end_date, actual_pay_cap_amt, 
-		expected_pay_cap_amt, payment_amount, medicaid_id, medicare_no, alternate_id, employee_no, social_sec_no, 
-		date_of_birth, error_code, first_name, last_name, plan_code, risk_group, plan_name, invoice_amount, insert_process, update_process, insert_user, update_user, 
-		insert_datetime, update_datetime, recon_status, pay_recon_status) 
-		values (nextval('recon.seq_recon_id'), i_seq_revenue_id, rec.subscriber_id, i_revenue_start_date, rec.payment_end_date, i_act_pay_cap_amt, 
-		i_exp_pay_cap_amt, i_pop_rate, rec.medicaid_id, rec.medicare_no, i_alternate_id, rec.employee_no, rec.social_sec_no, 
-		rec.date_of_birth, rec.error_code, rec.first_name, rec.last_name, rec.plan_code, rec.risk_group, i_planname, 0, 'UPSERTPAY', 'UPSERTPAY', 'RAM', 'RAM', now(), now(), 
-		case when rec.error_code is not null then i_status_err else i_status_pnb end,
-		case when rec.error_code is not null then i_status_err 
-			 else case when i_act_pay_cap_amt = i_exp_pay_cap_amt then i_status_psa 
-					   when i_act_pay_cap_amt > i_exp_pay_cap_amt then i_status_pdh 
-					   else i_status_pdl 
-				  end 
-			 end);
-	end if;
-	
-	exception
-		when others then
-		--log exception
-		if not exists(select 1 from recon.ram_recon_retrigger_payment where alternate_id = i_alternate_id and plan_name = i_planname and payment_start_date = i_revenue_start_date) then 
-			insert into recon.ram_recon_retrigger_payment values (i_alternate_id, i_planname,i_revenue_start_date, now(), 'Insert or Update data in recon: ' || sqlstate || ' ' || sqlerrm, i_seqpaymentheaderid);
---			RAISE NOTICE 'Exception occurred (Code: %): %', SQLSTATE, SQLERRM;  
---			raise notice 'Exception for alternate id = %, revenue start date = %, plan = %', i_alternate_id,i_revenue_start_date, i_planname;
-			continue;
-		end if;
-	end;
 
-	end loop;
-	close cur_alt_id;
-return 0;
-end
-  $function$
-;
+dev
+
+Limit  (cost=12.51..12.51 rows=1 width=221)
+  ->  Sort  (cost=12.51..12.51 rows=1 width=221)
+        Sort Key: rpad2.cap_rec_seq DESC
+        ->  Nested Loop  (cost=0.86..12.50 rows=1 width=221)
+              Join Filter: (rpd.seq_payment_detail_id = rpad2.seq_payment_detail_id)
+              ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_plan_code_payment_s_idx on ram_payment_detail_uhcin rpd  (cost=0.43..6.23 rows=1 width=227)
+                    Index Cond: ((seq_revenue_id = '120028'::bigint) AND (payment_start_date = '2023-08-01'::date))
+                    Filter: ((seq_payment_header_id = '130829'::bigint) AND ((plan_name)::text = 'UHCIN'::text) AND ((alternate_id)::text = '8383656'::text))
+              ->  Index Scan using ram_payment_additional_data__seq_payment_header_id_seq_pa_idx11 on ram_payment_additional_data_uhcin rpad2  (cost=0.43..6.24 rows=1 width=10)
+                    Index Cond: (seq_payment_header_id = '130829'::bigint)
+                    Filter: (((plan_name)::text = 'UHCIN'::text) AND ((((record_type)::text = '1R'::text) AND ((plan_name)::text <> ALL ('{HUMNY,HUMAZ,HUMCS,HUMNW,HUMNM,HUMNV}'::text[]))) OR ((plan_name)::text = ANY ('{HUMNY,HUMAZ,HUMCS,HUMNW,HUMNM,HUMNV}'::text[]))))
+
+prod
+Limit  (cost=14.60..14.61 rows=1 width=221)
+  ->  Sort  (cost=14.60..14.61 rows=1 width=221)
+        Sort Key: rpad2.cap_rec_seq DESC
+        ->  Nested Loop  (cost=0.86..14.59 rows=1 width=221)
+              Join Filter: (rpd.seq_payment_detail_id = rpad2.seq_payment_detail_id)
+              ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_alternate_id_paymen_idx on ram_payment_detail_uhcin rpd  (cost=0.43..6.23 rows=1 width=227)
+                    Index Cond: ((seq_revenue_id = '120028'::bigint) AND ((alternate_id)::text = '8383656'::text) AND (payment_start_date = '2023-08-01'::date))
+                    Filter: ((seq_payment_header_id = '130829'::bigint) AND ((plan_name)::text = 'UHCIN'::text))
+              ->  Index Scan using ram_payment_additional_data__seq_payment_header_id_seq_pa_idx17 on ram_payment_additional_data_uhcin rpad2  (cost=0.43..8.33 rows=1 width=10)
+                    Index Cond: (seq_payment_header_id = '130829'::bigint)
+                    Filter: (((plan_name)::text = 'UHCIN'::text) AND ((((record_type)::text = '1R'::text) AND ((plan_name)::text <> ALL ('{HUMNY,HUMAZ,HUMCS,HUMNW,HUMNM,HUMNV}'::text[]))) OR ((plan_name)::text = ANY ('{HUMNY,HUMAZ,HUMCS,HUMNW,HUMNM,HUMNV}'::text[]))))
+					
+					
+					
+dev
+
+Limit  (cost=12.49..12.50 rows=1 width=221)
+  ->  Sort  (cost=12.49..12.50 rows=1 width=221)
+        Sort Key: rpad2.cap_rec_seq DESC
+        ->  Nested Loop  (cost=0.86..12.48 rows=1 width=221)
+              Join Filter: (rpd.seq_payment_detail_id = rpad2.seq_payment_detail_id)
+              ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_plan_code_payment_s_idx on ram_payment_detail_uhcin rpd  (cost=0.43..6.23 rows=1 width=227)
+                    Index Cond: ((seq_revenue_id = '120028'::bigint) AND (payment_start_date = '2023-08-01'::date))
+                    Filter: ((seq_payment_header_id = '130829'::bigint) AND ((plan_name)::text = 'UHCIN'::text) AND ((alternate_id)::text = '8383656'::text))
+              ->  Index Scan using ram_payment_additional_data__seq_payment_header_id_seq_pa_idx11 on ram_payment_additional_data_uhcin rpad2  (cost=0.43..6.22 rows=1 width=10)
+                    Index Cond: (seq_payment_header_id = '130829'::bigint)
+                    Filter: ((plan_name)::text = 'UHCIN'::text)
+
+prod
+
+Limit  (cost=14.58..14.59 rows=1 width=221)
+  ->  Sort  (cost=14.58..14.59 rows=1 width=221)
+        Sort Key: rpad2.cap_rec_seq DESC
+        ->  Nested Loop  (cost=0.86..14.57 rows=1 width=221)
+              Join Filter: (rpd.seq_payment_detail_id = rpad2.seq_payment_detail_id)
+              ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_alternate_id_paymen_idx on ram_payment_detail_uhcin rpd  (cost=0.43..6.23 rows=1 width=227)
+                    Index Cond: ((seq_revenue_id = '120028'::bigint) AND ((alternate_id)::text = '8383656'::text) AND (payment_start_date = '2023-08-01'::date))
+                    Filter: ((seq_payment_header_id = '130829'::bigint) AND ((plan_name)::text = 'UHCIN'::text))
+              ->  Index Scan using ram_payment_additional_data__seq_payment_header_id_seq_pa_idx17 on ram_payment_additional_data_uhcin rpad2  (cost=0.43..8.31 rows=1 width=10)
+                    Index Cond: (seq_payment_header_id = '130829'::bigint)
+                    Filter: ((plan_name)::text = 'UHCIN'::text)
+					
+					
+dev  --same
+
+Index Only Scan using ram_reconciliation_detail_uh_plan_name_revenue_start_date_idx21 on ram_reconciliation_detail_uhcin rrd  (cost=0.42..8.47 rows=1 width=4)
+  Index Cond: ((plan_name = 'UHCIN'::text) AND (revenue_start_date = '2023-08-01'::date) AND (alternate_id = '8383656'::text))
+  
+prod
+
+Index Only Scan using ram_reconciliation_detail_uh_plan_name_revenue_start_date_idx17 on ram_reconciliation_detail_uhcin rrd  (cost=0.42..4.47 rows=1 width=4)
+  Index Cond: ((plan_name = 'UHCIN'::text) AND (revenue_start_date = '2023-08-01'::date) AND (alternate_id = '8383656'::text))
+  
