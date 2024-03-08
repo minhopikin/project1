@@ -1,122 +1,24 @@
-
-
-dev
-
-GroupAggregate  (cost=6.34..6.41 rows=1 width=54)
-  Group Key: p.seq_revenue_id, p.payment_start_date, p.alternate_id
-  ->  Sort  (cost=6.34..6.34 rows=1 width=67)
-        Sort Key: p.seq_revenue_id, p.payment_start_date, p.alternate_id
-        ->  Subquery Scan on p  (cost=6.24..6.33 rows=1 width=67)
-              ->  GroupAggregate  (cost=6.24..6.30 rows=1 width=99)
-                    Group Key: ram_payment_detail.plan_name, ram_payment_detail.seq_revenue_id, ram_payment_detail.alternate_id, ram_payment_detail.record_type, (abs(ram_payment_detail.payment_amount)), ram_payment_detail.percent_of_premium_rate, ram_payment_detail.payment_start_date
-                    ->  Sort  (cost=6.24..6.24 rows=1 width=73)
-                          Sort Key: ram_payment_detail.record_type, (abs(ram_payment_detail.payment_amount)), ram_payment_detail.percent_of_premium_rate
-                          ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_plan_code_payment_s_idx on ram_payment_detail_uhcin ram_payment_detail  (cost=0.43..6.23 rows=1 width=73)
-                                Index Cond: ((seq_revenue_id = '120028'::bigint) AND (payment_start_date = '2023-08-01'::date))
-                                Filter: (((alternate_id)::text = '8383656'::text) AND ((plan_name)::text = 'UHCIN'::text))
-
-
-prod
-
-GroupAggregate  (cost=6.34..6.41 rows=1 width=54)
-  Group Key: p.seq_revenue_id, p.payment_start_date, p.alternate_id
-  ->  Sort  (cost=6.34..6.35 rows=1 width=67)
-        Sort Key: p.seq_revenue_id, p.payment_start_date, p.alternate_id
-        ->  Subquery Scan on p  (cost=6.24..6.33 rows=1 width=67)
-              ->  GroupAggregate  (cost=6.24..6.30 rows=1 width=99)
-                    Group Key: ram_payment_detail.plan_name, ram_payment_detail.seq_revenue_id, ram_payment_detail.alternate_id, ram_payment_detail.record_type, (abs(ram_payment_detail.payment_amount)), ram_payment_detail.percent_of_premium_rate, ram_payment_detail.payment_start_date
-                    ->  Sort  (cost=6.24..6.25 rows=1 width=73)
-                          Sort Key: ram_payment_detail.record_type, (abs(ram_payment_detail.payment_amount)), ram_payment_detail.percent_of_premium_rate
-                          ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_alternate_id_paymen_idx on ram_payment_detail_uhcin ram_payment_detail  (cost=0.43..6.23 rows=1 width=73)
-                                Index Cond: ((seq_revenue_id = '120028'::bigint) AND ((alternate_id)::text = '8383656'::text) AND (payment_start_date = '2023-08-01'::date))
-                                Filter: ((plan_name)::text = 'UHCIN'::text)
-								
-								
-								
-dev
-
-GroupAggregate  (cost=0.43..6.27 rows=1 width=86)
-  Group Key: ram_payment_detail.seq_revenue_id, ram_payment_detail.payment_start_date, ram_payment_detail.alternate_id
-  ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_plan_code_payment_s_idx on ram_payment_detail_uhcin ram_payment_detail  (cost=0.43..6.22 rows=1 width=34)
-        Index Cond: ((seq_revenue_id = '120028'::bigint) AND (payment_start_date = '2023-08-01'::date))
-        Filter: (((plan_name)::text = 'UHCIN'::text) AND ((alternate_id)::text = '8383656'::text))
-		
-		
-prod
-
-GroupAggregate  (cost=0.43..6.28 rows=1 width=86)
-  Group Key: ram_payment_detail.seq_revenue_id, ram_payment_detail.payment_start_date, ram_payment_detail.alternate_id
-  ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_alternate_id_paymen_idx on ram_payment_detail_uhcin ram_payment_detail  (cost=0.43..6.23 rows=1 width=34)
-        Index Cond: ((seq_revenue_id = '120028'::bigint) AND ((alternate_id)::text = '8383656'::text) AND (payment_start_date = '2023-08-01'::date))
-        Filter: ((plan_name)::text = 'UHCIN'::text)
-		
-
-
-dev
-
-Limit  (cost=12.51..12.51 rows=1 width=221)
-  ->  Sort  (cost=12.51..12.51 rows=1 width=221)
-        Sort Key: rpad2.cap_rec_seq DESC
-        ->  Nested Loop  (cost=0.86..12.50 rows=1 width=221)
-              Join Filter: (rpd.seq_payment_detail_id = rpad2.seq_payment_detail_id)
-              ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_plan_code_payment_s_idx on ram_payment_detail_uhcin rpd  (cost=0.43..6.23 rows=1 width=227)
-                    Index Cond: ((seq_revenue_id = '120028'::bigint) AND (payment_start_date = '2023-08-01'::date))
-                    Filter: ((seq_payment_header_id = '130829'::bigint) AND ((plan_name)::text = 'UHCIN'::text) AND ((alternate_id)::text = '8383656'::text))
-              ->  Index Scan using ram_payment_additional_data__seq_payment_header_id_seq_pa_idx11 on ram_payment_additional_data_uhcin rpad2  (cost=0.43..6.24 rows=1 width=10)
-                    Index Cond: (seq_payment_header_id = '130829'::bigint)
-                    Filter: (((plan_name)::text = 'UHCIN'::text) AND ((((record_type)::text = '1R'::text) AND ((plan_name)::text <> ALL ('{HUMNY,HUMAZ,HUMCS,HUMNW,HUMNM,HUMNV}'::text[]))) OR ((plan_name)::text = ANY ('{HUMNY,HUMAZ,HUMCS,HUMNW,HUMNM,HUMNV}'::text[]))))
-
-prod
-Limit  (cost=14.60..14.61 rows=1 width=221)
-  ->  Sort  (cost=14.60..14.61 rows=1 width=221)
-        Sort Key: rpad2.cap_rec_seq DESC
-        ->  Nested Loop  (cost=0.86..14.59 rows=1 width=221)
-              Join Filter: (rpd.seq_payment_detail_id = rpad2.seq_payment_detail_id)
-              ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_alternate_id_paymen_idx on ram_payment_detail_uhcin rpd  (cost=0.43..6.23 rows=1 width=227)
-                    Index Cond: ((seq_revenue_id = '120028'::bigint) AND ((alternate_id)::text = '8383656'::text) AND (payment_start_date = '2023-08-01'::date))
-                    Filter: ((seq_payment_header_id = '130829'::bigint) AND ((plan_name)::text = 'UHCIN'::text))
-              ->  Index Scan using ram_payment_additional_data__seq_payment_header_id_seq_pa_idx17 on ram_payment_additional_data_uhcin rpad2  (cost=0.43..8.33 rows=1 width=10)
-                    Index Cond: (seq_payment_header_id = '130829'::bigint)
-                    Filter: (((plan_name)::text = 'UHCIN'::text) AND ((((record_type)::text = '1R'::text) AND ((plan_name)::text <> ALL ('{HUMNY,HUMAZ,HUMCS,HUMNW,HUMNM,HUMNV}'::text[]))) OR ((plan_name)::text = ANY ('{HUMNY,HUMAZ,HUMCS,HUMNW,HUMNM,HUMNV}'::text[]))))
-					
-					
-					
-dev
-
-Limit  (cost=12.49..12.50 rows=1 width=221)
-  ->  Sort  (cost=12.49..12.50 rows=1 width=221)
-        Sort Key: rpad2.cap_rec_seq DESC
-        ->  Nested Loop  (cost=0.86..12.48 rows=1 width=221)
-              Join Filter: (rpd.seq_payment_detail_id = rpad2.seq_payment_detail_id)
-              ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_plan_code_payment_s_idx on ram_payment_detail_uhcin rpd  (cost=0.43..6.23 rows=1 width=227)
-                    Index Cond: ((seq_revenue_id = '120028'::bigint) AND (payment_start_date = '2023-08-01'::date))
-                    Filter: ((seq_payment_header_id = '130829'::bigint) AND ((plan_name)::text = 'UHCIN'::text) AND ((alternate_id)::text = '8383656'::text))
-              ->  Index Scan using ram_payment_additional_data__seq_payment_header_id_seq_pa_idx11 on ram_payment_additional_data_uhcin rpad2  (cost=0.43..6.22 rows=1 width=10)
-                    Index Cond: (seq_payment_header_id = '130829'::bigint)
-                    Filter: ((plan_name)::text = 'UHCIN'::text)
-
-prod
-
-Limit  (cost=14.58..14.59 rows=1 width=221)
-  ->  Sort  (cost=14.58..14.59 rows=1 width=221)
-        Sort Key: rpad2.cap_rec_seq DESC
-        ->  Nested Loop  (cost=0.86..14.57 rows=1 width=221)
-              Join Filter: (rpd.seq_payment_detail_id = rpad2.seq_payment_detail_id)
-              ->  Index Scan using ram_payment_detail_uhcin_seq_revenue_id_alternate_id_paymen_idx on ram_payment_detail_uhcin rpd  (cost=0.43..6.23 rows=1 width=227)
-                    Index Cond: ((seq_revenue_id = '120028'::bigint) AND ((alternate_id)::text = '8383656'::text) AND (payment_start_date = '2023-08-01'::date))
-                    Filter: ((seq_payment_header_id = '130829'::bigint) AND ((plan_name)::text = 'UHCIN'::text))
-              ->  Index Scan using ram_payment_additional_data__seq_payment_header_id_seq_pa_idx17 on ram_payment_additional_data_uhcin rpad2  (cost=0.43..8.31 rows=1 width=10)
-                    Index Cond: (seq_payment_header_id = '130829'::bigint)
-                    Filter: ((plan_name)::text = 'UHCIN'::text)
-					
-					
-dev  --same
-
-Index Only Scan using ram_reconciliation_detail_uh_plan_name_revenue_start_date_idx21 on ram_reconciliation_detail_uhcin rrd  (cost=0.42..8.47 rows=1 width=4)
-  Index Cond: ((plan_name = 'UHCIN'::text) AND (revenue_start_date = '2023-08-01'::date) AND (alternate_id = '8383656'::text))
-  
-prod
-
-Index Only Scan using ram_reconciliation_detail_uh_plan_name_revenue_start_date_idx17 on ram_reconciliation_detail_uhcin rrd  (cost=0.42..4.47 rows=1 width=4)
-  Index Cond: ((plan_name = 'UHCIN'::text) AND (revenue_start_date = '2023-08-01'::date) AND (alternate_id = '8383656'::text))
-  
+SELECT
+    tc.table_schema,
+    tc.table_name,
+    kcu.column_name AS foreign_key_column,
+    ccu.table_schema AS referenced_table_schema,
+    ccu.table_name AS referenced_table_name,
+    ccu.column_name AS referenced_column_name
+FROM
+    information_schema.table_constraints AS tc
+JOIN
+    information_schema.key_column_usage AS kcu
+    ON tc.constraint_name = kcu.constraint_name
+JOIN
+    information_schema.constraint_column_usage AS ccu
+    ON ccu.constraint_name = tc.constraint_name
+WHERE
+    constraint_type = 'FOREIGN KEY';
+-----------------------------------------------
+ALTER TABLE table_name
+DISABLE CONSTRAINT constraint_name;
+--------------------
+ALTER TABLE orders
+DISABLE CONSTRAINT fk_user_id;
+--------------------
