@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# PostgreSQL connection parameters
+PGUSER="your_user"
+PGDATABASE="your_database"
+
+# Run VACUUM FULL ANALYZE command
+psql -h $PGHOST -U $PGUSER -d $PGDATABASE -c "VACUUM FULL ANALYZE;"
+
+0 0 * * 6 /path/to/vacuum_script.sh
