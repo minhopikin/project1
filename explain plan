@@ -1,55 +1,39 @@
-"Gather  (cost=11273.53..137520.43 rows=153542 width=1208)"
-"  Workers Planned: 2"
-"  ->  Hash Left Join  (cost=10273.53..121166.23 rows=63976 width=1208)"
-"        Hash Cond: (((a.plan_name)::text = (r.plan_name)::text) AND (a.seq_payment_header_id = r.seq_payment_header_id) AND ((a.memberid)::text = (r.memberid)::text) AND (a.cap_period = r.cap_period) AND (a.cap_proc_month = r.cap_proc_month) AND ((a.mco_ctrct)::text = (r.mco_ctrct)::text) AND ((a.pbp)::text = (r.pbp)::text) AND ((a.provider_id)::text = (r.provider_id)::text) AND ((a.pgm_source)::text = (r.pgm_source)::text))"
-"        ->  Nested Loop Left Join  (cost=10271.73..119005.21 rows=63976 width=1084)"
-"              ->  Nested Loop Left Join  (cost=10271.31..80970.50 rows=63976 width=777)"
-"                    ->  Parallel Hash Left Join  (cost=10270.89..43063.20 rows=63976 width=480)"
-"                          Hash Cond: (((a.plan_name)::text = (e.plan_name)::text) AND (a.seq_payment_header_id = e.seq_payment_header_id) AND ((a.memberid)::text = (e.memberid)::text) AND (a.cap_period = e.cap_period) AND (a.cap_proc_month = e.cap_proc_month) AND ((a.mco_ctrct)::text = (e.mco_ctrct)::text) AND ((a.pbp)::text = (e.pbp)::text) AND ((a.provider_id)::text = (e.provider_id)::text) AND ((a.pgm_source)::text = (e.pgm_source)::text))"
-"                          ->  Parallel Seq Scan on ram_temp_humana_prta a  (cost=0.00..11866.15 rows=63976 width=361)"
-"                                Filter: (((plan_name)::text = 'HUMNM'::text) AND (seq_payment_header_id = 112529))"
-"                          ->  Parallel Hash  (cost=5787.15..5787.15 rows=63976 width=119)"
-"                                ->  Parallel Seq Scan on ram_temp_humana_excl e  (cost=0.00..5787.15 rows=63976 width=119)"
-"                                      Filter: (((plan_name)::text = 'HUMNM'::text) AND (seq_payment_header_id = 112529))"
-"                    ->  Index Scan using ram_temp_humana_prtb_idx2 on ram_temp_humana_prtb b  (cost=0.42..0.56 rows=1 width=297)"
-"                          Index Cond: (((plan_name)::text = (a.plan_name)::text) AND ((plan_name)::text = 'HUMNM'::text) AND (seq_payment_header_id = a.seq_payment_header_id) AND (seq_payment_header_id = 112529) AND ((memberid)::text = (a.memberid)::text) AND (cap_period = a.cap_period) AND (cap_proc_month = a.cap_proc_month) AND ((mco_ctrct)::text = (a.mco_ctrct)::text) AND ((pbp)::text = (a.pbp)::text) AND ((provider_id)::text = (a.provider_id)::text) AND ((pgm_source)::text = (a.pgm_source)::text))"
-"              ->  Index Scan using ram_temp_humana_prtd_idx2 on ram_temp_humana_prtd d  (cost=0.42..0.56 rows=1 width=307)"
-"                    Index Cond: (((plan_name)::text = (a.plan_name)::text) AND ((plan_name)::text = 'HUMNM'::text) AND (seq_payment_header_id = a.seq_payment_header_id) AND (seq_payment_header_id = 112529) AND ((memberid)::text = (a.memberid)::text) AND (cap_period = a.cap_period) AND (cap_proc_month = a.cap_proc_month) AND ((mco_ctrct)::text = (a.mco_ctrct)::text) AND ((pbp)::text = (a.pbp)::text) AND ((provider_id)::text = (a.provider_id)::text) AND ((pgm_source)::text = (a.pgm_source)::text))"
-"        ->  Hash  (cost=1.75..1.75 rows=1 width=124)"
-"              ->  Index Scan using ram_temp_humana_rsrv_idx2 on ram_temp_humana_rsrv r  (cost=0.12..1.75 rows=1 width=124)"
-"                    Index Cond: (((plan_name)::text = 'HUMNM'::text) AND (seq_payment_header_id = 112529))"
------------------------------------------------------------------------------------------------------------------------
-
-QUERY PLAN
-Update on ram_payment_detail p  (cost=29868.47..45131143.66 rows=1952 width=1923)
-  InitPlan 3 (returns $10)
-    ->  Unique  (cost=2.34..2.35 rows=1 width=6)
-          ->  Sort  (cost=2.34..2.34 rows=1 width=6)
-                Sort Key: ram_revenue_stream.plan_name
-                ->  Seq Scan on ram_revenue_stream  (cost=0.00..2.33 rows=1 width=6)
-                      Filter: (((company_code)::text = 'UHCAG'::text) AND ((revenue_type)::text = 'CAP'::text))
-  InitPlan 4 (returns $11)
-    ->  Unique  (cost=2.34..2.35 rows=1 width=8)
-          ->  Sort  (cost=2.34..2.34 rows=1 width=8)
-                Sort Key: ram_revenue_stream_1.seq_revenue_id
-                ->  Seq Scan on ram_revenue_stream ram_revenue_stream_1  (cost=0.00..2.33 rows=1 width=8)
-                      Filter: (((company_code)::text = 'UHCAG'::text) AND ((revenue_type)::text = 'CAP'::text))
-  ->  Bitmap Heap Scan on ram_payment_detail p  (cost=29863.77..45131138.96 rows=1952 width=1923)
-        Recheck Cond: ((seq_revenue_id = $11) AND (subscriber_id IS NULL) AND (payment_start_date >= to_date('20191231'::text, 'yyyyMMdd'::text)) AND (payment_start_date <= to_date('20230202'::text, 'yyyyMMdd'::text)))
-        Filter: ((status <> ALL ('{C,V}'::bpchar[])) AND ((plan_name)::text = ($10)::text))
-        ->  BitmapAnd  (cost=29863.77..29863.77 rows=56609 width=0)
-              ->  Bitmap Index Scan on ram_payment_detail_idx6  (cost=0.00..6392.29 rows=757207 width=0)
-                    Index Cond: (seq_revenue_id = $11)
-              ->  Bitmap Index Scan on ram_payment_detail_idx2  (cost=0.00..23470.26 rows=1641657 width=0)
-                    Index Cond: ((subscriber_id IS NULL) AND (payment_start_date >= to_date('20191231'::text, 'yyyyMMdd'::text)) AND (payment_start_date <= to_date('20230202'::text, 'yyyyMMdd'::text)))
-        SubPlan 2 (returns $5,$6,$7,$8,$9)
-          ->  Aggregate  (cost=23073.85..23073.89 rows=1 width=168)
-                InitPlan 1 (returns $2)
-                  ->  Unique  (cost=3.62..3.63 rows=1 width=7)
-                        ->  Sort  (cost=3.62..3.63 rows=1 width=7)
-                              Sort Key: h.source_code
-                              ->  Seq Scan on ram_revenue_stream_history h  (cost=0.00..3.61 rows=1 width=7)
-                                    Filter: ((p.payment_start_date >= effective_date) AND ((company_code)::text = 'UHCOH'::text) AND ((revenue_type)::text = 'CAP'::text) AND (p.payment_start_date <= COALESCE(term_date, to_date('12/31/9999'::text, 'MM/DD/YYYY'::text))))
-                ->  Index Scan using member_demographics_pk01 on ram_member_demographics md  (cost=0.42..23070.08 rows=19 width=10)
-                      Index Cond: (((plan_name)::text = (p.plan_name)::text) AND (effective_date <= p.payment_start_date))
-                      Filter: ((p.payment_start_date <= term_date) AND ((source_code)::text = ($2)::text) AND ((CASE WHEN ((plan_name)::text ~~ 'UHC%'::text) THEN ("substring"((alternate_id)::text, 1, 9))::character varying ELSE alternate_id END)::text = (p.alternate_id)::text))
+INSERT INTO PAYMENT.ram_temp_humana_combined(
+memberid, Cap_Period, CAP_PROC_MONTH, MBR_CAP_Start_Date, MBR_CAP_End_Date, CUR_MBRMO, RETRO_ADD
+, RETRO_TRM, Entity, HealthPlan, PRODUCT, MCO_CTRCT, PBP, Provider_Id
+, PROV_NM, MM, PRTC_Fund_RTE, PRTA_FUND_RTE, PRTA_fund_TAX, PRTB_Fund_RTE, PRTD_FUND_RTE
+, RSRV_FUND_RTE, EXCL_FUND_RTE, Total_FP, mbr_nm, mbr_sex, ret_reason, CTRCT_PRTA
+, mbr_age, MBR_ID, cur_cap_sw, ret_cap_sw, CMS_PRTA, CMS_PRTB, CMS_PRTD, REINSURANCE_SUBSIDY_AMOUNT
+, CAP_CTRCT, GROUPER, PGM_SOURCE, MBR_CUS_ID, CTRCT_PRTB, CTRCT_PRTD, STATUS, RUN_DATE, PROD_LOB, PRTA_PCT, PRTB_PCT,PLAN_NAME , seq_payment_header_id, 
+SEQ_HUMANA_ID)
+select distinct 
+  a.memberid, a.Cap_Period, a.CAP_PROC_MONTH, a.MBR_CAP_Start_Date, a.MBR_CAP_End_Date, a.CUR_MBRMO, a.RETRO_ADD
+, a.RETRO_TRM, 'OCN' AS Entity, 'Humana' AS HealthPlan, a.PRODUCT, a.MCO_CTRCT, a.PBP, a.Provider_Id
+, a.PROV_NM
+, Case When a.CUR_MBRMO > 0 Then 1 When a.RETRO_ADD > 0 Then 1 When a.RETRO_TRM < 0 Then -1 Else 0 END AS MM
+, a.PRTA_FUND_RTE + b.PRTB_Fund_RTE AS PRTC_Fund_RTE
+, a.PRTA_FUND_RTE, a.PRTA_fund_TAX, b.PRTB_Fund_RTE, d.PRTD_FUND_RTE
+,r.RSRV_FUND_RTE
+,e.EXCL_FUND_RTE
+,a.PRTA_FUND_RTE + b.PRTB_Fund_RTE + d.PRTD_FUND_RTE + r.RSRV_FUND_RTE + e.EXCL_FUND_RTE AS Total_FP
+,  a.mbr_nm, a.mbr_sex, a.ret_reason, a.CTRCT_PRTA
+, a.mbr_age, a.MBR_ID, a.cur_cap_sw, a.ret_cap_sw, a.CMS_PRTA, b.CMS_PRTB, d.CMS_PRTD, d.REINSURANCE_SUBSIDY_AMOUNT
+, a.CAP_CTRCT, a.GROUPER, a.PGM_SOURCE, a.MBR_CUS_ID, b.CTRCT_PRTB, d.CTRCT_PRTD, a.STATUS, a.RUN_DATE, a.PROD_LOB, a.PRTA_PCT, b.PRTB_PCT,a.plan_name
+,a.seq_payment_header_id,nextval('payment.SEQ_HUMANA_ID') FROM PAYMENT.ram_temp_humana_prta a
+  LEFT JOIN PAYMENT.ram_temp_humana_prtb b
+	ON
+a.seq_payment_header_id = b.seq_payment_header_id and a.memberid = b.memberid AND a.Cap_Period = b.Cap_Period AND a.CAP_PROC_MONTH = b.CAP_PROC_MONTH
+AND a.MCO_CTRCT = b.MCO_CTRCT AND a.PBP = b.PBP	AND a.Provider_Id = b.Provider_Id AND a.PGM_SOURCE = b.PGM_SOURCE
+  LEFT JOIN PAYMENT.ram_temp_humana_prtd d
+	ON
+a.seq_payment_header_id = d.seq_payment_header_id and a.memberid = d.memberid AND a.Cap_Period = d.Cap_Period AND a.CAP_PROC_MONTH = d.CAP_PROC_MONTH
+	AND a.MCO_CTRCT = d.MCO_CTRCT AND a.PBP = d.PBP	AND a.Provider_Id = d.Provider_Id AND a.PGM_SOURCE = d.PGM_SOURCE
+  LEFT JOIN PAYMENT.ram_temp_humana_rsrv r
+	ON
+a.seq_payment_header_id = r.seq_payment_header_id and a.memberid = r.memberid AND a.Cap_Period = r.Cap_Period AND a.CAP_PROC_MONTH = r.CAP_PROC_MONTH
+	AND a.MCO_CTRCT = r.MCO_CTRCT AND a.PBP = r.PBP	AND a.Provider_Id = r.Provider_Id AND a.PGM_SOURCE = r.PGM_SOURCE
+  LEFT JOIN PAYMENT.ram_temp_humana_excl e
+	ON
+a.seq_payment_header_id = e.seq_payment_header_id and a.memberid = e.memberid AND a.Cap_Period = e.Cap_Period AND a.CAP_PROC_MONTH = e.CAP_PROC_MONTH
+	AND a.MCO_CTRCT = e.MCO_CTRCT AND a.PBP = e.PBP	AND a.Provider_Id = e.Provider_Id AND a.PGM_SOURCE = e.PGM_SOURCE
+where  a.seq_payment_header_id in ('102963') ;
