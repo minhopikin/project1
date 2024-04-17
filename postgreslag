@@ -78,5 +78,34 @@ elif [ "$is_replication_active" = "f" ]; then
     # If replication is not active, send email alert
     echo "The PostgreSQL primary database replication is not active." | mail -s "$EMAIL_SUBJECT" $EMAIL_RECIPIENT
 fi
+----------------------password is in .pgpass------------------
+#!/bin/bash
+
+# PostgreSQL connection parameters
+PG_USER="your_username"
+PG_HOST="your_postgres_host"
+PG_PORT="your_postgres_port"
+
+# Email parameters
+EMAIL_SUBJECT="PostgreSQL Alert"
+EMAIL_RECIPIENT="your_email@example.com"
+
+# Check if the database is in standby mode
+is_standby=$(PGPASSWORD="$PG_PASSWORD" psql -h $PG_HOST -p $PG_PORT -U $PG_USER -d postgres -c "SELECT pg_is_in_recovery();" | awk 'NR==3{print $1}')
+
+# Check if replication is active
+is_replication_active=$(PGPASSWORD="$PG_PASSWORD" psql -h $PG_HOST -p $PG_PORT -U $PG_USER -d postgres -c "SELECT pg_is_in_recovery();" | awk 'NR==3{print $1}')
+
+if [ "$is_standby" = "f" ] && [ "$is_replication_active" = "f" ]; then
+    # If not in standby mode and replication is not active, send email alert
+    echo "The PostgreSQL primary database is not in standby mode and replication is not active." | mail -s "$EMAIL_SUBJECT" $EMAIL_RECIPIENT
+elif [ "$is_standby" = "f" ]; then
+    # If not in standby mode, send email alert
+    echo "The PostgreSQL primary database has become standby." | mail -s "$EMAIL_SUBJECT" $EMAIL_RECIPIENT
+elif [ "$is_replication_active" = "f" ]; then
+    # If replication is not active, send email alert
+    echo "The PostgreSQL primary database replication is not active." | mail -s "$EMAIL_SUBJECT" $EMAIL_RECIPIENT
+fi
+
 
 
