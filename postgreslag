@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# Source environment variables
+source /opt/app/localhome/svcpostgres/pg_env.sh
+
+# Define the maximum allowed replication lag in seconds
+MAX_LAG_SECONDS=0.5  # 0.5 minutes
+
+# Get the server hostname
+SERVER_NAME=$(hostname)
+
+# Get the replication lag in seconds
+replication_lag=$(psql -h localhost -d citus -c "SELECT extract(seconds from (now() - pg_last_xact_replay_timestamp())) AS time_lag;" -t -A)
+
+# Check if the psql command was successful
+if [ $? -ne 0 ]; then
+  echo "Error executing psql command. Check the PostgreSQL connection or script for details."
+  exit 1
+fi
+
+# Check if replication lag exceeds the threshold
+if [ -n "$replication_lag" ] && [ "$(awk 'BEGIN{print ("'$replication_lag'" > "'$MAX_LAG_SECONDS'") ? 1 : 0}')" -eq 1 ]; then
+  alert_message="Server: $SERVER_NAME - Replication lag is too high: ${replication_lag} seconds."
+  echo $alert_message
+  # Send an email alert using mailx
+  echo "$alert_message" | mailx -s "Replication Lag Alert - $SERVER_NAME" Ngoasong.Fonge@medimpact.com
+else
+  echo "Server: $SERVER_NAME - Replication lag is within acceptable limits: ${replication_lag} seconds."
+fi
