@@ -65,4 +65,10 @@ insert into payment.ram_temp_humana_combined (
 	coalesce(rec.fund1_rte,0) + coalesce(rec.fund2_rte,0) + coalesce(rec.fund5_rte,0),
 	coalesce(rec.fund4_rte,0), coalesce(rec.fund6_rte,0), 
 	coalesce(rec.fund1_rte,0) + coalesce(rec.fund2_rte,0) + coalesce(rec.fund5_rte,0) + coalesce(rec.fund4_rte,0) + coalesce(rec.fund6_rte,0),
-	detailsRec.mbr_nm, detailsRec.mbr_sex, det
+	detailsRec.mbr_nm, detailsRec.mbr_sex, detailsRec.ret_reason, detailsRec.CTRCT_PRTA, detailsRec.mbr_age, detailsRec.MBR_ID, detailsRec.cur_cap_sw, detailsRec.ret_cap_sw,
+	ROUND(detailsRec.PREM_PRTA, 2), ROUND(detailsRec.PREM_PRTB, 2), ROUND(detailsRec.PREM_PRTD, 2), 
+	detailsRec.PREM_REI, detailsRec.CAP_CTRCT, detailsRec.GROUPER, detailsRec.PGM_SOURCE, detailsRec.MBR_CUS_ID, detailsRec.CTRCT_PRTB, detailsRec.CTRCT_PRTD,
+	detailsRec.STATUS, detailsRec.RUN_DATE, detailsRec.PROD_LOB, 
+	prtaPCT, prtbPCT, i_planname, i_seqpaymentheaderid, nextval('payment.SEQ_HUMANA_ID'), 
+	detailsRec.PREM_LIS, detailsRec.UHG_CDO_ID, detailsRec.UHG_REGION_ID
+	);
