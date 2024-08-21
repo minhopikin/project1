@@ -1,0 +1,68 @@
+CREATE OR REPLACE FUNCTION payment.insert_into_ram_temp_humana_prta_for_humoh(
+	i_seqpaymentheaderid integer,
+	i_planname character varying)
+    RETURNS void
+    LANGUAGE 'plpgsql'
+    COST 100
+    VOLATILE PARALLEL UNSAFE
+AS $BODY$
+
+declare
+
+--get fund1, fund2, fund4, fund5, fund6 rte for each month - sum up the amount if there are duplicates based on mbr_pid,cap_period, rpt_pe, MCO_CTRCT, PBP, Provider_Id
+cur cursor for select rpht.mbr_pid, rpt_pe, mco_ctrct, pbp, SUBSTRING(CAP_CTRCT, 1, position(' ' in CAP_CTRCT) - 1) AS provider_Id, cast(cast(rpht.MBR_CAP_BD as DATE) + n.nbr * interval '1 month' as date) as cap_Period, 
+sum(rpht.fund1_rte) as fund1_rte ,sum(rpht.fund2_rte) as fund2_rte, sum(rpht.fund4_rte) as fund4_rte, sum(rpht.fund5_rte) as fund5_rte, sum(rpht.fund6_rte) as fund6_rte
+from payment.ram_payment_humana_temp rpht
+inner join PAYMENT.ram_temp_humana_nums n on
+	cast(rpht.MBR_CAP_BD as DATE) + n.nbr * interval '1 month' <= cast(rpht.MBR_CAP_ED as DATE)
+where seq_payment_header_id = i_seqpaymentheaderid and plan_name = i_planname and pgm_source = 'P' 
+group by mbr_pid,cap_period, rpt_pe, mco_ctrct, pbp, provider_Id;
+
+rec RECORD;
+detailsRec Record;
+prtaPCT numeric(12,2);
+prtbPCT numeric(12,2);
+
+begin
+ open cur;
+ loop fetch cur into rec;
+ exit
+ when not found;
+
+select * into strict detailsRec from payment.ram_payment_humana_temp rpht 
+where seq_payment_header_id = i_seqpaymentheaderid and plan_name = i_planname and pgm_source = 'P' and mbr_pid =  rec.mbr_pid
+and rpt_pe = rec.rpt_pe and mco_ctrct = rec.mco_ctrct  and pbp = rec.pbp and SUBSTRING(CAP_CTRCT, 1, position(' ' in CAP_CTRCT) - 1) = rec.provider_id and rec.cap_period between cast(mbr_cap_bd as date)  and cast(mbr_cap_ed as date)
+limit 1; 
+
+select prta1_pct + prta2_pct + prta3_pct+ prta4_pct + prta5_pct + prta6_pct into strict prtaPCT from payment.ram_payment_humana_temp rpht where seq_payment_header_id = i_seqpaymentheaderid and plan_name = i_planname and pgm_source = 'P' and mbr_pid =  rec.mbr_pid
+and rpt_pe = rec.rpt_pe and mco_ctrct = rec.mco_ctrct  and pbp = rec.pbp and SUBSTRING(CAP_CTRCT, 1, position(' ' in CAP_CTRCT) - 1) = rec.provider_id and rec.cap_period between cast(mbr_cap_bd as date)  and cast(mbr_cap_ed as date)
+and fund5_id = 'PRTA'
+limit 1; 
+
+select prtb1_pct + prtb2_pct + prtb3_pct+ prtb4_pct + prtb5_pct + prtb6_pct into strict prtbPCT from payment.ram_payment_humana_temp rpht where seq_payment_header_id = i_seqpaymentheaderid and plan_name = i_planname and pgm_source = 'P' and mbr_pid =  rec.mbr_pid
+and rpt_pe = rec.rpt_pe and mco_ctrct = rec.mco_ctrct  and pbp = rec.pbp and SUBSTRING(CAP_CTRCT, 1, position(' ' in CAP_CTRCT) - 1) = rec.provider_id and rec.cap_period between cast(mbr_cap_bd as date)  and cast(mbr_cap_ed as date)
+and fund4_id = 'PRTB'
+limit 1; 
+
+insert into payment.ram_temp_humana_combined ( 
+	memberid, cap_Period, CAP_PROC_MONTH, MBR_CAP_Start_Date, MBR_CAP_End_Date, CUR_MBRMO, RETRO_ADD, RETRO_TRM,
+	Entity, HealthPlan, PRODUCT, MCO_CTRCT, PBP, Provider_Id, PROV_NM, MM,
+	PRTC_Fund_RTE, --change
+	PRTA_FUND_RTE, PRTB_Fund_RTE, PRTD_FUND_RTE, Total_FP, mbr_nm, mbr_sex, ret_reason, CTRCT_PRTA, mbr_age, MBR_ID, cur_cap_sw, ret_cap_sw,
+	CMS_PRTA, CMS_PRTB, CMS_PRTD, REINSURANCE_SUBSIDY_AMOUNT, CAP_CTRCT, GROUPER, PGM_SOURCE, MBR_CUS_ID, CTRCT_PRTB, CTRCT_PRTD,
+	STATUS, RUN_DATE, PROD_LOB, PRTA_PCT, PRTB_PCT, PLAN_NAME, seq_payment_header_id, SEQ_HUMANA_ID, PREM_LIS, UHG_CDO_ID, UHG_REGION_ID)  
+	values (
+	rec.mbr_pid, rec.cap_period, cast(rec.rpt_pe as date), cast(detailsRec.mbr_cap_bd as date), cast(detailsRec.mbr_cap_ed as date), detailsRec.CUR_MBRMO, detailsRec.RETRO_ADD, detailsRec.RETRO_TRM,
+	'OCN', 'Humana',
+	CASE WHEN detailsRec.PROD_LOB = 'MEP' THEN 'LPPO'
+		 WHEN detailsRec.PROD_LOB = 'MEF' THEN 'PFFS'
+		 WHEN detailsRec.PROD_LOB = 'MER' THEN 'HMO'
+		 WHEN detailsRec.PROD_LOB = 'MRO' THEN 'HMO' ELSE NULL
+	END ,
+	rec.mco_ctrct, rec.pbp, rec.provider_id, detailsRec.PROV_NM,
+	Case When detailsRec.CUR_MBRMO > 0 Then 1 When detailsRec.RETRO_ADD > 0 Then 1 When detailsRec.RETRO_TRM < 0 Then -1 Else 0 END ,
+	coalesce(rec.fund4_rte,0) + coalesce(rec.fund5_rte,0), 
+	coalesce(rec.fund1_rte,0) + coalesce(rec.fund2_rte,0) + coalesce(rec.fund5_rte,0),
+	coalesce(rec.fund4_rte,0), coalesce(rec.fund6_rte,0), 
+	coalesce(rec.fund1_rte,0) + coalesce(rec.fund2_rte,0) + coalesce(rec.fund5_rte,0) + coalesce(rec.fund4_rte,0) + coalesce(rec.fund6_rte,0),
+	detailsRec.mbr_nm, detailsRec.mbr_sex, det
