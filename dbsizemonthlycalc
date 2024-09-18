@@ -1,0 +1,28 @@
+Step 1: Create a table to store the database size history
+
+CREATE TABLE db_size_history (
+    record_time TIMESTAMP DEFAULT current_timestamp,
+    database_name TEXT,
+    size BIGINT
+);
+
+Step 2: Schedule a task to log the current database size Or Manual run:
+
+INSERT INTO db_size_history (database_name, size)
+SELECT datname, pg_database_size(datname)
+FROM pg_database
+WHERE datname = 'your_database_name';
+
+Step 3: Calculate database size growth for each month.:
+
+SELECT 
+    date_trunc('month', record_time) AS month, 
+    MAX(size) - MIN(size) AS growth
+FROM 
+    db_size_history
+WHERE 
+    database_name = 'your_database_name'
+GROUP BY 
+    date_trunc('month', record_time)
+ORDER BY 
+    month;
