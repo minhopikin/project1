@@ -1,109 +1,23 @@
-INSERT INTO membership.RAM_ELIGIBILITY_FILE_ERROR (SEQ_ELIG_FILE_ID, RECORD_TYPE, SUBSCRIBER_ID, PERSON_NUMBER, EFFECTIVE_DATE, TERM_DATE, SOURCE_SEQ_MEMBER_ID, SOURCE_SEQ_ELIG_HIST, PLAN_NAME, COMPANY_CODE, ELIG_STATUS, PLAN_CODE, GROUP_ID, GROUP_NAME, PRODUCT_ID, PRODUCT_DESC, PLAN_BENEFIT_PKG, PLAN_BENEFIT_PKG_DESC, PCP_PROVIDER_ID_TIN, PCP_EFFECTIVE_DATE, PCP_PROVIDER_TYPE_CODE, PCP_TERM_DATE, MEDICARE_CONTRACT_CODE, MEM_CURRENT_ELIG_FLAG, COUNTY_CODE, LINE_OF_BUSINESS, PROD_GROUP, INSERT_DATE, LAST_UPDATE_DATE, USER_DEFINED_1, USER_DEFINED_2, USER_DEFINED_3, USER_DEFINED_4, USER_DEFINED_5, USER_DEFINED_6, USER_DEFINED_7, USER_DEFINED_8, USER_DEFINED_9, USER_DEFINED_10, USER_DATE_1, USER_DATE_2, USER_DATE_3, USER_DATE_4, USER_DATE_5, USER_DATE_6, USER_DATE_7, USER_DATE_8, USER_DATE_9, USER_DATE_10, INSERT_DATETIME, UPDATE_DATETIME, INSERT_PROCESS, INSERT_USER, UPDATE_USER, UPDATE_PROCESS, ERROR_REASON)
-SELECT
-    elig1.SEQ_ELIG_FILE_ID,
-    elig1.RECORD_TYPE,
-    elig1.SUBSCRIBER_ID,
-    elig1.PERSON_NUMBER,
-    to_char(elig1.EFFECTIVE_DATE, 'MMDDYYYY'),
-    to_char(elig1.TERM_DATE, 'MMDDYYYY'),
-    elig1.SOURCE_SEQ_MEMBER_ID,
-    elig1.SOURCE_SEQ_ELIG_HIST,
-    elig1.PLAN_NAME,
-    elig1.COMPANY_CODE,
-    elig1.ELIG_STATUS,
-    elig1.PLAN_CODE,
-    elig1.GROUP_ID,
-    elig1.GROUP_NAME,
-    elig1.PRODUCT_ID,
-    elig1.PRODUCT_DESC,
-    elig1.PLAN_BENEFIT_PKG,
-    elig1.PLAN_BENEFIT_PKG_DESC,
-    elig1.PCP_PROVIDER_ID_TIN,
-    to_char(elig1.PCP_EFFECTIVE_DATE, 'YYYY-MM-DD HH:MI:SS.MS'),
-    elig1.PCP_PROVIDER_TYPE_CODE,
-    to_char(elig1.PCP_TERM_DATE, 'YYYY-MM-DD HH:MI:SS.MS'),
-    elig1.MEDICARE_CONTRACT_CODE,
-    elig1.MEM_CURRENT_ELIG_FLAG,
-    elig1.COUNTY_CODE,
-    elig1.LINE_OF_BUSINESS,
-    elig1.PROD_GROUP,
-    to_char(elig1.INSERT_DATE, 'MMDDYYYY'),
-    to_char(elig1.LAST_UPDATE_DATE, 'MMDDYYYY'),
-    elig1.USER_DEFINED_1,
-    elig1.USER_DEFINED_2,
-    elig1.USER_DEFINED_3,
-    elig1.USER_DEFINED_4,
-    elig1.USER_DEFINED_5,
-    elig1.USER_DEFINED_6,
-    elig1.USER_DEFINED_7,
-    elig1.USER_DEFINED_8,
-    elig1.USER_DEFINED_9,
-    elig1.USER_DEFINED_10,
-    elig1.USER_DATE_1,
-    elig1.USER_DATE_2,
-    elig1.USER_DATE_3,
-    elig1.USER_DATE_4,
-    elig1.USER_DATE_5,
-    elig1.USER_DATE_6,
-    elig1.USER_DATE_7,
-    elig1.USER_DATE_8,
-    elig1.USER_DATE_9,
-    elig1.USER_DATE_10,
-    elig1.INSERT_DATETIME,
-    elig1.UPDATE_DATETIME,
-    elig1.INSERT_PROCESS,
-    elig1.INSERT_USER,
-    elig1.UPDATE_USER,
-    elig1.UPDATE_PROCESS,
-    'ERROR:Multiple Subscriber ID for Alternate ID'
-FROM
-    membership.RAM_ELIGIBILITY_FILE_DATA elig1
-JOIN membership.RAM_DEMOGRAPHICS_FILE_DATA demo1 ON
-    elig1.subscriber_id = demo1.subscriber_id
-    AND elig1.plan_name = demo1.plan_name
-JOIN (
-    SELECT elig2.subscriber_id, demo2.alternate_id
-    FROM membership.RAM_ELIGIBILITY_FILE_DATA elig2
-    JOIN membership.RAM_DEMOGRAPHICS_FILE_DATA demo2 ON
-        elig2.plan_name = $1
-        AND elig2.PLAN_NAME = demo2.PLAN_NAME
-        AND elig2.subscriber_id = demo2.subscriber_id
-        AND elig2.elig_status <> 'V'
-) AS file_data ON file_data.subscriber_id <> elig1.subscriber_id
-    AND file_data.alternate_id = demo1.alternate_id
-LEFT JOIN membership.ram_eligibility_file_error err ON elig1.subscriber_id = err.subscriber_id
-    AND err.error_reason = 'ERROR:Multiple Subscriber ID for Alternate ID'
-WHERE
-    elig1.elig_status <> 'V'
-    AND elig1.plan_name = $2
-    AND err.subscriber_id IS NULL;
---------------------------------------------------------------------------
-
-2. Avoid NOT IN with Subquery
-The NOT IN clause can be slow when the subquery returns many rows. You can replace it with a LEFT JOIN and check for NULL values instead, which generally performs better.
-
-Replace NOT IN with a LEFT JOIN:
-
-sql
-Copy code
-LEFT JOIN membership.ram_eligibility_file_error err ON elig1.subscriber_id = err.subscriber_id
-AND err.error_reason = 'ERROR:Multiple Subscriber ID for Alternate ID'
---Then, filter for rows where the LEFT JOIN didn’t find a match:
-sql
-Copy code
-WHERE err.subscriber_id IS NULL
-
-3. Use EXISTS instead of JOIN in Subquery
-The inner subquery can be rewritten to use EXISTS, which is usually more efficient in such cases.
-
-Rewrite Subquery:
-
-sql
-Copy code
-JOIN membership.ram_demographics_file_data demo2 ON elig2.plan_name = $1
-AND EXISTS (
-   SELECT 1
-   FROM membership.ram_demographics_file_data d2
-   WHERE d2.plan_name = elig2.plan_name
-   AND d2.subscriber_id = elig2.subscriber_id
-   AND elig2.elig_status <> 
+"Update on membership.ram_member_eligibility e  (cost=26143.49..47311.60 rows=0 width=0)"
+"  Update on membership.ram_member_eligibility_uhcks e_1"
+"  ->  Hash Join  (cost=26143.49..47311.60 rows=93459 width=156)"
+"        Output: demo.medicaid_id, demo.medicare_no, demo.alternate_id, demo.mem_name_prefix, demo.first_name, demo.last_name, demo.date_of_birth, demo.gender, (demo.social_sec_no)::character varying(20), demo.employee_no, demo.payment_alternate_id, demo.ctid, file_data.ctid, e_1.tableoid, e_1.ctid, demo.tableoid, file_data.tableoid"
+"        Hash Cond: ((e_1.subscriber_id)::text = (demo.subscriber_id)::text)"
+"        Join Filter: (((demo.first_name)::text <> (e_1.first_name)::text) OR ((demo.last_name)::text <> (e_1.last_name)::text) OR ((demo.mem_name_prefix)::text <> (e_1.member_name_prefix)::text) OR (demo.date_of_birth <> e_1.date_of_birth) OR ((demo.gender)::text <> (e_1.gender)::text) OR ((demo.social_sec_no)::text <> (e_1.social_sec_no)::text) OR ((demo.employee_no)::text <> (e_1.employee_no)::text) OR ((demo.medicaid_id)::text <> (e_1.medicaid_id)::text) OR ((demo.alternate_id)::text <> (e_1.alternate_id)::text) OR ((demo.medicare_no)::text <> (e_1.medicare_no)::text))"
+"        ->  Seq Scan on membership.ram_member_eligibility_uhcks e_1  (cost=0.00..10911.05 rows=115417 width=85)"
+"              Output: e_1.subscriber_id, e_1.plan_name, e_1.first_name, e_1.last_name, e_1.member_name_prefix, e_1.date_of_birth, e_1.gender, e_1.social_sec_no, e_1.employee_no, e_1.medicaid_id, e_1.alternate_id, e_1.medicare_no, e_1.tableoid, e_1.ctid"
+"              Filter: ((e_1.plan_name)::text = 'UHCKS'::text)"
+"        ->  Hash  (cost=21791.92..21791.92 rows=86879 width=115)"
+"              Output: demo.medicaid_id, demo.medicare_no, demo.alternate_id, demo.mem_name_prefix, demo.first_name, demo.last_name, demo.date_of_birth, demo.gender, demo.social_sec_no, demo.employee_no, demo.payment_alternate_id, demo.ctid, demo.subscriber_id, demo.plan_name, demo.tableoid, file_data.ctid, file_data.subscriber_id, file_data.tableoid"
+"              ->  Hash Join  (cost=10651.92..21791.92 rows=86879 width=115)"
+"                    Output: demo.medicaid_id, demo.medicare_no, demo.alternate_id, demo.mem_name_prefix, demo.first_name, demo.last_name, demo.date_of_birth, demo.gender, demo.social_sec_no, demo.employee_no, demo.payment_alternate_id, demo.ctid, demo.subscriber_id, demo.plan_name, demo.tableoid, file_data.ctid, file_data.subscriber_id, file_data.tableoid"
+"                    Hash Cond: ((demo.subscriber_id)::text = (file_data.subscriber_id)::text)"
+"                    ->  Seq Scan on membership.ram_member_demographics_uhcks demo  (cost=0.00..7994.48 rows=107830 width=95)"
+"                          Output: demo.medicaid_id, demo.medicare_no, demo.alternate_id, demo.mem_name_prefix, demo.first_name, demo.last_name, demo.date_of_birth, demo.gender, demo.social_sec_no, demo.employee_no, demo.payment_alternate_id, demo.ctid, demo.subscriber_id, demo.plan_name, demo.tableoid"
+"                          Filter: ((demo.plan_name)::text = 'UHCKS'::text)"
+"                    ->  Hash  (cost=7842.46..7842.46 rows=86445 width=26)"
+"                          Output: file_data.ctid, file_data.subscriber_id, file_data.plan_name, file_data.tableoid"
+"                          ->  Seq Scan on membership.ram_eligibility_file_data_uhcks file_data  (cost=0.00..7842.46 rows=86445 width=26)"
+"                                Output: file_data.ctid, file_data.subscriber_id, file_data.plan_name, file_data.tableoid"
+"                                Filter: ((file_data.plan_name)::text = 'UHCKS'::text)"
+"Query Identifier: -4598862744245954770"
