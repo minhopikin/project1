@@ -1,2 +1,4 @@
-ERROR:  syntax error at or near "PERFORM"
-LINE 40:     PERFORM membership.update_member_details_in_invoice_reco...
+Explanation of the Optimizations
+CTE Usage: Using elig_data and demo_data CTEs allows filtered data to be queried once and reused, reducing redundant subqueries and improving readability.
+Reduced Redundant Conditions: With all relevant eligibility data pre-filtered in the CTEs, the updates simply join to the CTEs, minimizing complex conditions in the UPDATE statements.
+Direct Comparisons: Using IS DISTINCT FROM ensures comparisons even with NULL values, which prevents unnecessary updates where values haven’t changed.
