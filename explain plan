@@ -1,214 +1,85 @@
 CREATE OR REPLACE PROCEDURE membership.update_eligibility_data_for_void(
 	IN v_plan_name character varying)
 LANGUAGE 'plpgsql'
-AS $BODY$
+AS $$
+BEGIN
+    -- CTE to load eligibility data
+    WITH elig_data AS (
+        SELECT *
+        FROM membership.ram_eligibility_file_data
+        WHERE plan_name = v_plan_name AND elig_status = 'V'
+    ),
+    -- CTE to load demographic data
+    demo_data AS (
+        SELECT *
+        FROM membership.ram_member_demographics
+        WHERE plan_name = v_plan_name
+    )
 
-				
-begin
-    
-	--Updating old member eligibility for non trigger columns..
-	update
-	membership.ram_member_eligibility e
-set
-	(group_name,
-	product_desc,
-	plan_benefit_pkg_desc ,
-	pcp_provider_id_tin,
-	pcp_effective_date,
-	pcp_provider_type_code ,
-	pcp_term_date,
-	mem_current_elig_flag,
-	county_code,
-	line_of_business,
-	plan_code,
-	prod_group) 
- =(
-	select
-		elig_data .group_name ,
-		elig_data.product_desc,
-		elig_data.plan_benefit_pkg_desc ,
-		elig_data.pcp_provider_id_tin ,
-		elig_data.pcp_effective_date ,
-		elig_data .pcp_provider_type_code ,
-		elig_data.pcp_term_date ,
-		elig_data.mem_current_elig_flag ,
-		elig_data.county_code ,
-		elig_data.line_of_business ,
-		elig_data .plan_code ,
-		elig_data .prod_group
-	from
-		membership.ram_eligibility_file_data elig_data
-	where
-		elig_data.plan_name = v_plan_name
-		and elig_data.SUBSCRIBER_ID = e.SUBSCRIBER_ID
-		and to_char(elig_data.effective_date, 'yyyy-mm-dd') = to_char(e.effective_date, 'yyyy-mm-dd')
-		and elig_data.elig_status = 'V'
-		and elig_data.plan_name = e.plan_name
-		and elig_data.medicare_contract_code = e.medicare_contract_code
-		and elig_data.plan_benefit_pkg = e.plan_benefit_pkg
-		and elig_data.product_id = e.product_id
-		and substring(elig_data.plan_code, 1, 4) = substring(e.plan_code, 1, 4) )
-where
-	e.plan_name = v_plan_name
-	and (subscriber_id,
-	effective_date) in 
- (
-	select
-		subscriber_id,
-		effective_date
-	from
-		membership.ram_eligibility_file_data elig_data
-	where
-		elig_data.plan_name = v_plan_name
-		and elig_data.SUBSCRIBER_ID = e.SUBSCRIBER_ID
-		and to_char(elig_data.effective_date, 'yyyy-mm-dd') = to_char(e.effective_date, 'yyyy-mm-dd')
-			and elig_data.elig_status = 'V'
-			and elig_data.plan_name = e.plan_name
-			and elig_data.medicare_contract_code = e.medicare_contract_code
-			and elig_data.plan_benefit_pkg = e.plan_benefit_pkg
-			and elig_data.product_id = e.product_id
-			and substring(elig_data.plan_code, 1, 4) = substring(e.plan_code, 1, 4) ) ;
+    -- Update non-trigger columns
+    UPDATE membership.ram_member_eligibility e
+    SET
+        group_name = ed.group_name,
+        product_desc = ed.product_desc,
+        plan_benefit_pkg_desc = ed.plan_benefit_pkg_desc,
+        pcp_provider_id_tin = ed.pcp_provider_id_tin,
+        pcp_effective_date = ed.pcp_effective_date,
+        pcp_provider_type_code = ed.pcp_provider_type_code,
+        pcp_term_date = ed.pcp_term_date,
+        mem_current_elig_flag = ed.mem_current_elig_flag,
+        county_code = ed.county_code,
+        line_of_business = ed.line_of_business,
+        plan_code = ed.plan_code,
+        prod_group = ed.prod_group
+    FROM elig_data ed
+    WHERE e.plan_name = v_plan_name
+        AND e.subscriber_id = ed.subscriber_id
+        AND to_char(ed.effective_date, 'yyyy-mm-dd') = to_char(e.effective_date, 'yyyy-mm-dd')
+        AND ed.plan_name = e.plan_name
+        AND ed.medicare_contract_code = e.medicare_contract_code
+        AND ed.plan_benefit_pkg = e.plan_benefit_pkg
+        AND ed.product_id = e.product_id
+        AND substring(ed.plan_code, 1, 4) = substring(e.plan_code, 1, 4);
 
-		
-	--Invoking the store proc to update the member details..
-	perform membership.update_member_details_in_invoice_recon(v_plan_name);
-	
-		
-	--Updating  member eligibility for demographic changes..
-	update
-	membership.ram_member_eligibility e
-set
-	(medicaid_id,
-	alternate_id,
-	payment_alternate_id,
-	medicare_no,
-	date_of_birth,
-	first_name,
-	last_name,
-	member_name_prefix,
-	gender,
-	social_sec_no,
-	employee_no) = (
-	select
-		demo.medicaid_id,
-		demo.alternate_id,
-		demo.payment_alternate_id,
-		demo.medicare_no,
-		demo.date_of_birth,
-		demo.first_name,
-		demo.last_name,
-		demo.mem_name_prefix,
-		demo.gender,
-		demo.social_sec_no,
-		demo.employee_no
-	from
-		membership.ram_member_demographics demo
-	where
-		demo.plan_name = v_plan_name
-		and demo.subscriber_id = e.subscriber_id
-		and demo.plan_name = e.plan_name)
-where
-	plan_name = v_plan_name
-	and subscriber_id in (
-	select
-		d.subscriber_id
-	from
-		membership.ram_member_eligibility d
-	where
-		plan_name = v_plan_name
-		and d.subscriber_id in (
-		select
-			subscriber_id
-		from
-			membership.ram_eligibility_file_data
-		where
-			plan_name = v_plan_name)
-		and (d.subscriber_id,
-		d.plan_name,
-		d.first_name,
-		d.last_name,
-		d.member_name_prefix,
-		d.DATE_OF_BIRTH,
-		d.GENDER,
-		d.social_sec_no,
-		d.employee_no,
-		d.medicaid_id,
-		d.alternate_id,
-		d.medicare_no) not in(
-		select
-			d.subscriber_id,
-			d.plan_name,
-			d.first_name,
-			d.last_name,
-			d.mem_name_prefix,
-			d.DATE_OF_BIRTH,
-			d.GENDER,
-			d.social_sec_no,
-			d.employee_no,
-			d.medicaid_id,
-			d.alternate_id,
-			d.medicare_no
-		from
-			membership.ram_member_demographics d
-		where
-			plan_name = v_plan_name
-			and d.subscriber_id in (
-			select
-				subscriber_id
-			from
-				membership.ram_eligibility_file_data
-			where
-				plan_name = v_plan_name)));
+    -- Call procedure for additional member details
+    PERFORM membership.update_member_details_in_invoice_recon(v_plan_name);
 
-			
-	--Updating old member eligibility for  trigger columns..
-	update
-	membership.ram_member_eligibility e
-set
-	(term_date,
-	elig_status) 
- = (
-	select
-		elig_data .term_date,
-		elig_data.elig_status
-	from
-		membership.ram_eligibility_file_data elig_data
-	where
-		elig_data.plan_name = v_plan_name
-		and elig_data.SUBSCRIBER_ID = e.SUBSCRIBER_ID
-		and to_char(elig_data .effective_date, 'yyyy-mm-dd') = to_char(e .effective_date, 'yyyy-mm-dd')
-		and elig_data.elig_status = 'V'
-		and elig_data.plan_name = e.plan_name
-		and elig_data.medicare_contract_code = e.medicare_contract_code
-		and elig_data.plan_benefit_pkg = e.plan_benefit_pkg
-		and elig_data.product_id = e.product_id
-		and substring(elig_data.plan_code, 1, 4) = substring(e.plan_code, 1, 4) 
- ),
-	update_datetime = now(),
-	retro_invoice_trigger = now()
-where
-	e.plan_name = v_plan_name
-	and (subscriber_id,
-	effective_date) in 
- (
-	select
-		subscriber_id,
-		effective_date
-	from
-		membership.ram_eligibility_file_data elig_data
-	where
-		elig_data.plan_name = v_plan_name
-		and elig_data.SUBSCRIBER_ID = e.SUBSCRIBER_ID
-		and to_char(elig_data .effective_date, 'yyyy-mm-dd') = to_char(e .effective_date, 'yyyy-mm-dd')
-		and elig_data.plan_name = e.plan_name
-		and elig_data.elig_status = 'V'
-		and (e.term_date,e.elig_status)<>(elig_data .term_date,elig_data.elig_status)
-		and elig_data.medicare_contract_code = e.medicare_contract_code
-		and elig_data.plan_benefit_pkg = e.plan_benefit_pkg
-		and elig_data.product_id = e.product_id
-		and substring(elig_data.plan_code, 1, 4) = substring(e.plan_code, 1, 4)
-		order by
-			elig_data.subscriber_id,
-			elig_data.ctid ) ;
-		
-end;
+    -- Update demographic changes
+    UPDATE membership.ram_member_eligibility e
+    SET
+        medicaid_id = d.medicaid_id,
+        alternate_id = d.alternate_id,
+        payment_alternate_id = d.payment_alternate_id,
+        medicare_no = d.medicare_no,
+        date_of_birth = d.date_of_birth,
+        first_name = d.first_name,
+        last_name = d.last_name,
+        member_name_prefix = d.mem_name_prefix,
+        gender = d.gender,
+        social_sec_no = d.social_sec_no,
+        employee_no = d.employee_no
+    FROM demo_data d
+    WHERE e.plan_name = v_plan_name
+        AND e.subscriber_id = d.subscriber_id
+        AND e.plan_name = d.plan_name;
+
+    -- Update eligibility trigger columns
+    UPDATE membership.ram_member_eligibility e
+    SET
+        term_date = ed.term_date,
+        elig_status = ed.elig_status,
+        update_datetime = now(),
+        retro_invoice_trigger = now()
+    FROM elig_data ed
+    WHERE e.plan_name = v_plan_name
+        AND e.subscriber_id = ed.subscriber_id
+        AND to_char(ed.effective_date, 'yyyy-mm-dd') = to_char(e.effective_date, 'yyyy-mm-dd')
+        AND ed.plan_name = e.plan_name
+        AND ed.medicare_contract_code = e.medicare_contract_code
+        AND ed.plan_benefit_pkg = e.plan_benefit_pkg
+        AND ed.product_id = e.product_id
+        AND substring(ed.plan_code, 1, 4) = substring(e.plan_code, 1, 4)
+        AND (e.term_date, e.elig_status) IS DISTINCT FROM (ed.term_date, ed.elig_status);
+
+END;
+$$;
