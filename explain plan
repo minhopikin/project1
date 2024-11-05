@@ -1,1 +1,26 @@
-The dev version is a more optimized, simplified, and performance-oriented approach. It reduces redundancy and uses more efficient comparisons and joins. The test env version, though functionally correct, is more verbose and complex, potentially making it slower and harder to maintain.
+        BEGIN
+            DELETE FROM recon.RAM_RISKGROUP_REPORT
+            WHERE seq_revenue_id = i_seq_revenue_id;
+            CALL recon.insert_or_update_risk_group_report(i_seq_revenue_id, i_plan_name);
+            RAISE NOTICE 'Updated Risk Group Report';
+        END;
+ 
+        BEGIN
+            DELETE FROM recon.RAM_AGING_REPORT
+            WHERE seq_revenue_id = i_seq_revenue_id;
+            CALL recon.insert_or_update_aging_report(i_seq_revenue_id, i_plan_name);
+            RAISE NOTICE 'Updated Aging Report';
+        END;
+ 
+        BEGIN
+            DELETE FROM recon.RAM_TRACKING_REPORT
+            WHERE seq_revenue_id = i_seq_revenue_id;
+            CALL recon.insert_or_update_tracking_rpt_recon_status(i_seq_revenue_id, i_plan_name);
+            RAISE NOTICE 'Updated Tracking Report System Status';
+        END;
+ 
+        BEGIN
+            CALL recon.insert_or_update_tracking_rpt_user_status(i_seq_revenue_id, i_plan_name);
+            RAISE NOTICE 'Updated Tracking Report User Status';
+        END;
+ 
