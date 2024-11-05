@@ -1,22 +1,17 @@
-The two stored procedures differ primarily in syntax, structure, and the approach to data comparison, while achieving similar objectives. Here are the key differences:
-
-1. Syntax and Readability
-test env Version: This uses subqueries with multiple SELECT statements and WHERE clauses nested within UPDATE statements. It’s structured in a way that may cause redundant checks.
-dev Version: The syntax is simplified and more readable, relying on FROM clauses to join membership.ram_eligibility_file_data with membership.ram_member_eligibility directly in UPDATE statements. This version uses more concise comparisons, reducing potential redundancy.
-2. Direct Column Comparisons
-test env Version: Uses detailed subqueries and checks each field comparison manually, which makes it somewhat complex and may lead to higher query execution times due to nested conditions.
-dev Version: Uses simpler, direct field-by-field comparisons in a single UPDATE statement. This reduces execution complexity and improves performance.
-3. Demographic Update Logic
-test env Version: It updates demographic data by performing several subqueries to verify if data exists and then updates only if differences are found.
-dev Version: Uses a JOIN to directly compare ram_member_demographics and ram_eligibility_file_data. This approach is more efficient since it performs fewer nested comparisons and reduces redundancy.
-4. Trigger Column Updates
-test env Version: It has additional nested WHERE clause checks for conditions involving elig_data.term_date and elig_data.elig_status.
-dev Version: Uses simplified <> inequality comparisons for term_date and elig_status directly within the UPDATE clause, which is faster.
-5. Use of Aliases
-dev Version: Uses the as aliasing for tables (e.g., membership.ram_member_eligibility as e) which makes the queries more readable and concise.
-test env Version: Does not use aliases consistently, which can make the code harder to read and maintain.
-6. General Efficiency
-dev Version: Likely to perform better due to fewer subqueries, direct comparisons, and more straightforward syntax, which can reduce complexity and speed up query execution.
-test env Version: The nesting and additional conditional checks may slow down performance, especially with large data sets.
-Summary
-The dev version is a more optimized, simplified, and performance-oriented approach. It reduces redundancy and uses more efficient comparisons and joins. The test env version, though functionally correct, is more verbose and complex, potentially making it slower and harder to maintain.
+One of the transactions below was aborted and it's activity was rolled back. Please identify the processes involved and review the application logic for concurrency limitations
+2024-11-03 23:41:47.329 CST [406490] deployment@ocram/10.28.217.35 LOG: process 406490 detected deadlock while waiting for ShareLock on transaction 37950774 after 45000.079 ms
+2024-11-03 23:41:47.329 CST [406490] deployment@ocram/10.28.217.35 DETAIL: Process holding the lock: 406497. Wait queue: 406498.
+2024-11-03 23:41:47.329 CST [406490] deployment@ocram/10.28.217.35 CONTEXT: while rechecking updated tuple (85,16) in relation "ram_tracking_report"
+2024-11-03 23:41:47.329 CST [406490] deployment@ocram/10.28.217.35 STATEMENT: delete from recon.RAM_TRACKING_REPORT where seq_revenue_id = $1
+2024-11-03 23:41:47.329 CST [406498] deployment@ocram/10.28.217.35 LOG: process 406498 still waiting for ShareLock on transaction 37950774 after 45000.054 ms
+2024-11-03 23:41:47.329 CST [406498] deployment@ocram/10.28.217.35 DETAIL: Process holding the lock: 406497. Wait queue: 406498.
+2024-11-03 23:41:47.329 CST [406498] deployment@ocram/10.28.217.35 CONTEXT: while deleting tuple (85,16) in relation "ram_tracking_report"
+2024-11-03 23:41:47.329 CST [406498] deployment@ocram/10.28.217.35 STATEMENT: delete from recon.RAM_TRACKING_REPORT where seq_revenue_id = $1
+2024-11-03 23:41:47.329 CST [406490] deployment@ocram/10.28.217.35 ERROR: deadlock detected
+2024-11-03 23:41:47.329 CST [406490] deployment@ocram/10.28.217.35 DETAIL: Process 406490 waits for ShareLock on transaction 37950774; blocked by process 406497.
+Process 406497 waits for ShareLock on transaction 37950778; blocked by process 406490.
+Process 406490: delete from recon.RAM_TRACKING_REPORT where seq_revenue_id = $1
+Process 406497: delete from recon.RAM_TRACKING_REPORT where seq_revenue_id = $1
+2024-11-03 23:41:47.329 CST [406490] deployment@ocram/10.28.217.35 HINT: See server log for query details.
+2024-11-03 23:41:47.329 CST [406490] deployment@ocram/10.28.217.35 CONTEXT: while rechecking updated tuple (85,16) in relation "ram_tracking_report"
+2024-11-03 23:41:47.329 CST [406490] deployment@ocram/10.28.217.35 STATEMENT: delete from recon.RAM_TRACKING_REPORT where seq_revenue_id = $1
