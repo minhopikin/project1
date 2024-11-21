@@ -1,25 +1,27 @@
-BEGIN
-    -- Acquire row locks in a specific order to avoid deadlocks
-    PERFORM 1 FROM recon.RAM_RISKGROUP_REPORT WHERE seq_revenue_id = i_seq_revenue_id FOR UPDATE;
-    PERFORM 1 FROM recon.RAM_AGING_REPORT WHERE seq_revenue_id = i_seq_revenue_id FOR UPDATE;
-    PERFORM 1 FROM recon.RAM_TRACKING_REPORT WHERE seq_revenue_id = i_seq_revenue_id FOR UPDATE;
-
-    -- Perform deletions in a single transaction block
-    DELETE FROM recon.RAM_RISKGROUP_REPORT WHERE seq_revenue_id = i_seq_revenue_id;
-    DELETE FROM recon.RAM_AGING_REPORT WHERE seq_revenue_id = i_seq_revenue_id;
-    DELETE FROM recon.RAM_TRACKING_REPORT WHERE seq_revenue_id = i_seq_revenue_id;
-
-    -- Call procedures for updating after deletions
-    CALL recon.insert_or_update_risk_group_report(i_seq_revenue_id, i_plan_name);
-    RAISE NOTICE 'Updated Risk Group Report';
-
-    CALL recon.insert_or_update_aging_report(i_seq_revenue_id, i_plan_name);
-    RAISE NOTICE 'Updated Aging Report';
-
-    CALL recon.insert_or_update_tracking_rpt_recon_status(i_seq_revenue_id, i_plan_name);
-    RAISE NOTICE 'Updated Tracking Report System Status';
-
-    CALL recon.insert_or_update_tracking_rpt_user_status(i_seq_revenue_id, i_plan_name);
-    RAISE NOTICE 'Updated Tracking Report User Status';
-
-END;
+1. Process Overview
+Data Archival: Identify and move records older than three years to history tables.
+Backup: Dump the history tables to the /pgbackup/dump directory every six months.
+Automation: Schedule the entire process using a task scheduler like cron or pgAgent.
+----------------
+2. Process Design
+Step 1: Create History Tables
+Ensure you have corresponding history tables for the main tables with the same schema.
+Add an additional column (e.g., archived_date) to track when the data was archived.
+------------------------------------------
+Step 2: Data Archival Logic
+Write a stored procedure to move data older than 3 years to the history tables.
+--------------------------
+Step 3: pg_dump History Tables
+Write a script to dump history tables into /pgbackup/dump.
+------------------------------------
+Step 4: Automation with a Scheduler
+Use cron (Linux) to schedule:
+Archival: Daily or weekly.
+Backup: Every 6 months.
+----------------------------------------
+3. Monitoring and Logging
+Add logging to the stored procedure and backup script to track successful and failed operations.
+----------------------------------------
+4. Testing
+Test the archival and backup scripts in a non-production environment to ensure data consistency and correctness.
+Validate that the backup files can be restored.
