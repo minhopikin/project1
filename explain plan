@@ -1,27 +1,66 @@
-1. Process Overview
-Data Archival: Identify and move records older than three years to history tables.
-Backup: Dump the history tables to the /pgbackup/dump directory every six months.
-Automation: Schedule the entire process using a task scheduler like cron or pgAgent.
-----------------
-2. Process Design
-Step 1: Create History Tables
-Ensure you have corresponding history tables for the main tables with the same schema.
-Add an additional column (e.g., archived_date) to track when the data was archived.
-------------------------------------------
-Step 2: Data Archival Logic
-Write a stored procedure to move data older than 3 years to the history tables.
---------------------------
-Step 3: pg_dump History Tables
-Write a script to dump history tables into /pgbackup/dump.
-------------------------------------
-Step 4: Automation with a Scheduler
-Use cron (Linux) to schedule:
-Archival: Daily or weekly.
-Backup: Every 6 months.
-----------------------------------------
-3. Monitoring and Logging
-Add logging to the stored procedure and backup script to track successful and failed operations.
-----------------------------------------
-4. Testing
-Test the archival and backup scripts in a non-production environment to ensure data consistency and correctness.
-Validate that the backup files can be restored.
+#!/bin/bash
+
+# Database connection details
+DB_NAME="your_database"
+DB_USER="your_username"
+DB_HOST="localhost"
+DB_PORT="5432"
+
+# Archive threshold (3 years)
+ARCHIVE_THRESHOLD="3 years"
+
+# List of schemas to process
+SCHEMAS=("a" "b" "c" "d")
+
+# History schema
+HISTORY_SCHEMA="history"
+
+# Log file
+LOG_FILE="/var/log/postgres_archiver.log"
+
+# Timestamp for log entries
+TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+
+# Start logging
+echo "[$TIMESTAMP] Starting data archiving process..." >> $LOG_FILE
+
+# Iterate through each schema
+for SCHEMA in "${SCHEMAS[@]}"; do
+    echo "[$TIMESTAMP] Processing schema: $SCHEMA" >> $LOG_FILE
+
+    # Fetch list of tables in the schema
+    TABLES=$(psql -U $DB_USER -h $DB_HOST -p $DB_PORT -d $DB_NAME -t -c \
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = '$SCHEMA' AND table_type = 'BASE TABLE';")
+
+    # Iterate through each table in the schema
+    for TABLE in $TABLES; do
+        # Construct history table name
+        HISTORY_TABLE="$HISTORY_SCHEMA.$TABLE"
+
+        # Check if history table exists
+        TABLE_EXISTS=$(psql -U $DB_USER -h $DB_HOST -p $DB_PORT -d $DB_NAME -t -c \
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = '$HISTORY_SCHEMA' AND table_name = '$TABLE');")
+
+        if [[ $TABLE_EXISTS != " t" ]]; then
+            echo "[$TIMESTAMP] History table $HISTORY_TABLE does not exist. Skipping table $SCHEMA.$TABLE" >> $LOG_FILE
+            continue
+        fi
+
+        # Archive data (move to history table)
+        echo "[$TIMESTAMP] Archiving data from $SCHEMA.$TABLE to $HISTORY_TABLE" >> $LOG_FILE
+        psql -U $DB_USER -h $DB_HOST -p $DB_PORT -d $DB_NAME -c \
+            "INSERT INTO $HISTORY_TABLE SELECT * FROM $SCHEMA.$TABLE WHERE created_at < NOW() - INTERVAL '$ARCHIVE_THRESHOLD';"
+
+        # Delete archived data from the source table
+        echo "[$TIMESTAMP] Deleting archived data from $SCHEMA.$TABLE" >> $LOG_FILE
+        psql -U $DB_USER -h $DB_HOST -p $DB_PORT -d $DB_NAME -c \
+            "DELETE FROM $SCHEMA.$TABLE WHERE created_at < NOW() - INTERVAL '$ARCHIVE_THRESHOLD';"
+
+        # Log completion
+        echo "[$TIMESTAMP] Finished processing $SCHEMA.$TABLE" >> $LOG_FILE
+    done
+done
+
+# End logging
+TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+echo "[$TIMESTAMP] Data archiving process completed." >> $LOG_FILE
