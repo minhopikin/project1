@@ -51,3 +51,38 @@ BEGIN
     RAISE NOTICE 'Data archiving process completed.';
 END;
 $$;
+------------------------------------------------------------------------------------
+
+CREATE OR REPLACE PROCEDURE archive_specific_tables()
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    -- Declare variables to store table names
+    table_name TEXT;
+    history_table_name TEXT;
+BEGIN
+    -- Loop through the specified tables
+    FOR table_name IN 
+        SELECT unnest(ARRAY['a.bc', 'a.xy']) -- List your target tables here
+    LOOP
+        -- Derive history table name by prefixing 'history.'
+        history_table_name := 'history.' || split_part(table_name, '.', 2);
+
+        -- Dynamically construct and execute the INSERT query to move old data
+        EXECUTE format(
+            'INSERT INTO %I SELECT * FROM %I WHERE created_at < NOW() - INTERVAL ''3 years'';',
+            history_table_name, table_name
+        );
+
+        -- Dynamically construct and execute the DELETE query to remove old data
+        EXECUTE format(
+            'DELETE FROM %I WHERE created_at < NOW() - INTERVAL ''3 years'';',
+            table_name
+        );
+
+        -- Log a message for debugging or monitoring
+        RAISE NOTICE 'Archived data from table % to table %.', table_name, history_table_name;
+    END LOOP;
+END;
+$$;
+
