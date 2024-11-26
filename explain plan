@@ -1,39 +1,7 @@
-CREATE OR REPLACE PROCEDURE recon.archive_data_older_than_3_years()
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    -- Declare variables to store table names
-    table_name TEXT;
-    history_table_name TEXT;
-BEGIN
-    -- Loop through the specified tables
-    FOR table_name IN 
-        SELECT unnest(ARRAY['recon.ram_reconciliation_detail_bkp']) -- List your target tables here
-    LOOP
-        -- Derive history table name by prefixing 'history.'
-        history_table_name := 'history.' || split_part(table_name, '.', 2);
-
-        -- Dynamically construct and execute the INSERT query to move old data
-        EXECUTE format(
-            'INSERT INTO %I SELECT * FROM %I WHERE revenue_start_date < NOW() - INTERVAL ''3 years'';',
-            history_table_name, table_name
-        );
-
-        -- Dynamically construct and execute the DELETE query to remove old data
-        EXECUTE format(
-            'DELETE FROM %I WHERE revenue_start_date < NOW() - INTERVAL ''3 years'';',
-            table_name
-        );
-
-        -- Log a message for debugging or monitoring
-        RAISE NOTICE 'Archived data from table % to table %.', table_name, history_table_name;
-    END LOOP;
-END;
-$$;
---------------------------------------
 ERROR:  relation "history.ram_reconciliation_detail_bkp" does not exist
-LINE 1: select * from history.ram_reconciliation_detail_bkp;
-                      ^ 
+LINE 1: INSERT INTO "history.ram_reconciliation_detail_bkp" SELECT *...
+                    ^
+QUERY:  INSERT INTO "history.ram_reconciliation_detail_bkp" SELECT * FROM "recon.ram_reconciliation_detail_bkp" WHERE revenue_start_date < NOW() - INTERVAL '3 years';
+CONTEXT:  PL/pgSQL function recon.archive_data_older_than_3_years() line 15 at EXECUTE 
 
 SQL state: 42P01
-Character: 15
