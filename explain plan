@@ -1,59 +1,4 @@
-CREATE OR REPLACE PROCEDURE archive_data_older_than_3_years()
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    schema_name TEXT;
-    table_name TEXT;
-    history_table_name TEXT;
-    table_list RECORD;
-BEGIN
-    -- Define schemas to process
-    FOR schema_name IN ARRAY ['a', 'b', 'c', 'd'] LOOP
-        RAISE NOTICE 'Processing schema: %', schema_name;
-
-        -- Get all tables in the current schema
-        FOR table_list IN
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema = schema_name AND table_type = 'BASE TABLE'
-        LOOP
-            table_name := table_list.table_name;
-            history_table_name := 'history.' || table_name;
-
-            -- Check if the history table exists
-            IF EXISTS (
-                SELECT 1
-                FROM information_schema.tables
-                WHERE table_schema = 'history' AND table_name = table_name
-            ) THEN
-                RAISE NOTICE 'Processing table: %', schema_name || '.' || table_name;
-
-                -- Move data older than 3 years to the history table
-                EXECUTE format(
-                    'INSERT INTO %I SELECT * FROM %I.%I WHERE created_at < NOW() - INTERVAL ''3 years'';',
-                    history_table_name, schema_name, table_name
-                );
-
-                -- Delete data older than 3 years from the source table
-                EXECUTE format(
-                    'DELETE FROM %I.%I WHERE created_at < NOW() - INTERVAL ''3 years'';',
-                    schema_name, table_name
-                );
-
-                RAISE NOTICE 'Archived data from table: %', schema_name || '.' || table_name;
-            ELSE
-                RAISE WARNING 'History table % does not exist. Skipping table %.',
-                    history_table_name, schema_name || '.' || table_name;
-            END IF;
-        END LOOP;
-    END LOOP;
-
-    RAISE NOTICE 'Data archiving process completed.';
-END;
-$$;
-------------------------------------------------------------------------------------
-
-CREATE OR REPLACE PROCEDURE archive_specific_tables()
+CREATE OR REPLACE PROCEDURE recon.archive_data_older_than_3_years()
 LANGUAGE plpgsql
 AS $$
 DECLARE
@@ -63,20 +8,20 @@ DECLARE
 BEGIN
     -- Loop through the specified tables
     FOR table_name IN 
-        SELECT unnest(ARRAY['a.bc', 'a.xy']) -- List your target tables here
+        SELECT unnest(ARRAY['recon.ram_reconciliation_detail_bkp']) -- List your target tables here
     LOOP
         -- Derive history table name by prefixing 'history.'
         history_table_name := 'history.' || split_part(table_name, '.', 2);
 
         -- Dynamically construct and execute the INSERT query to move old data
         EXECUTE format(
-            'INSERT INTO %I SELECT * FROM %I WHERE created_at < NOW() - INTERVAL ''3 years'';',
+            'INSERT INTO %I SELECT * FROM %I WHERE revenue_start_date < NOW() - INTERVAL ''3 years'';',
             history_table_name, table_name
         );
 
         -- Dynamically construct and execute the DELETE query to remove old data
         EXECUTE format(
-            'DELETE FROM %I WHERE created_at < NOW() - INTERVAL ''3 years'';',
+            'DELETE FROM %I WHERE revenue_start_date < NOW() - INTERVAL ''3 years'';',
             table_name
         );
 
@@ -85,4 +30,10 @@ BEGIN
     END LOOP;
 END;
 $$;
+--------------------------------------
+ERROR:  relation "history.ram_reconciliation_detail_bkp" does not exist
+LINE 1: select * from history.ram_reconciliation_detail_bkp;
+                      ^ 
 
+SQL state: 42P01
+Character: 15
