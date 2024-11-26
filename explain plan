@@ -45,3 +45,16 @@ BEGIN
     RAISE NOTICE 'Archived data from table % to table %.', tbl_name, history_table_name;
 END;
 $$;
+-----------------------------------------------------------
+CREATE OR REPLACE PROCEDURE history.archive_tables()
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- Call the archive procedure for each table and its respective filter column
+    CALL recon.archive_data_older_than_3_years('recon.ram_reconciliation_detail_bkp', 'revenue_start_date');
+    CALL recon.archive_data_older_than_3_years('payment.ram_payment_detail', 'payment_start_date');
+    CALL recon.archive_data_older_than_3_years('billing.ram_billing_info', 'billing_date');
+    -- Add more calls here for additional tables
+END;
+$$;
+
