@@ -1,7 +1,49 @@
-ERROR:  relation "history.ram_reconciliation_detail_bkp" does not exist
-LINE 1: INSERT INTO "history.ram_reconciliation_detail_bkp" SELECT *...
-                    ^
-QUERY:  INSERT INTO "history.ram_reconciliation_detail_bkp" SELECT * FROM "recon.ram_reconciliation_detail_bkp" WHERE revenue_start_date < NOW() - INTERVAL '3 years';
-CONTEXT:  PL/pgSQL function recon.archive_data_older_than_3_years() line 15 at EXECUTE 
+CREATE OR REPLACE PROCEDURE recon.archive_data_older_than_3_years()
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    table_name TEXT;
+    history_table_name TEXT;
+    schema_name TEXT;
+    table_basename TEXT;
+BEGIN
+    FOR table_name IN 
+        SELECT unnest(ARRAY['recon.ram_reconciliation_detail_bkp']) -- List your target tables here
+    LOOP
+        -- Parse schema and table name
+        schema_name := split_part(table_name, '.', 1);
+        table_basename := split_part(table_name, '.', 2);
 
-SQL state: 42P01
+        -- Derive history table name
+        history_table_name := format('history.%s', table_basename);
+
+        -- Check if the history table exists; create it if not
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'history'
+              AND table_name = table_basename
+        ) THEN
+            EXECUTE format(
+                'CREATE TABLE %I.%I AS TABLE %I.%I WITH NO DATA;',
+                'history', table_basename, schema_name, table_basename
+            );
+            RAISE NOTICE 'Created history table %.', history_table_name;
+        END IF;
+
+        -- Move old data to the history table
+        EXECUTE format(
+            'INSERT INTO %I.%I SELECT * FROM %I.%I WHERE revenue_start_date < NOW() - INTERVAL ''3 years'';',
+            'history', table_basename, schema_name, table_basename
+        );
+
+        -- Delete old data from the source table
+        EXECUTE format(
+            'DELETE FROM %I.%I WHERE revenue_start_date < NOW() - INTERVAL ''3 years'';',
+            schema_name, table_basename
+        );
+
+        RAISE NOTICE 'Archived data from table % to table %.', table_name, history_table_name;
+    END LOOP;
+END;
+$$;
