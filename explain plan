@@ -144,7 +144,31 @@ BEGIN
 END;
 $BODY$;
 -----------------------------
-ERROR:  syntax error at or near "::"
-LINE 35: ...rmat('%I.ram_revenue_stream_history', schema_name)::regclass
+-- Validate that the ram_revenue_stream_history table exists in the schema
+IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = schema_name
+      AND table_name = 'ram_revenue_stream_history'
+) THEN
+    RAISE EXCEPTION 'Table ram_revenue_stream_history does not exist in schema %.', schema_name;
+END IF;
+
+-- Check the data_archival_flag and data_arc_back_in_months for the specified plan
+EXECUTE format(
+    'SELECT data_archival_flag, (data_arc_back_in_months || '' months'')::interval
+     FROM %I.ram_revenue_stream_history
+     WHERE %I = $1 LIMIT 1;',
+    schema_name, plan_name_column
+)
+INTO data_archival_flag, archive_interval
+USING plan_name_column;
+
+-- If the data_archival_flag is 'y' and archive_interval is valid, proceed
+IF data_archival_flag = 'y' AND archive_interval IS NOT NULL THEN
+    -- Remaining archival logic
+    RAISE NOTICE 'Archiving data based on the provided conditions.';
+END IF;
+
 
 
