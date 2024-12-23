@@ -143,5 +143,8 @@ BEGIN
     END IF;
 END;
 $BODY$;
+-----------------------------
+ERROR:  syntax error at or near "::"
+LINE 35: ...rmat('%I.ram_revenue_stream_history', schema_name)::regclass
 
 
