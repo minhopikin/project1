@@ -66,4 +66,82 @@ BEGIN
     RAISE NOTICE 'Unarchiving complete for table %.', tbl_name;
 END;
 $BODY$;
+----------------------------------------
+CREATE OR REPLACE PROCEDURE history.archive_data_based_on_flag(
+    IN tbl_name text,
+    IN plan_name_column text,
+    IN filter_column_name text)
+LANGUAGE 'plpgsql'
+AS $BODY$
+DECLARE
+    history_table_name TEXT;
+    schema_name TEXT;
+    table_basename TEXT;
+    archive_interval INTERVAL;
+    data_archival_flag TEXT;
+BEGIN
+    -- Extract schema and table base name
+    schema_name := split_part(tbl_name, '.', 1);
+    table_basename := split_part(tbl_name, '.', 2);
+
+    -- Derive history table name
+    history_table_name := format('history.%s', table_basename);
+
+    -- Validate that the ram_revenue_stream_history table exists in the schema
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = schema_name
+          AND table_name = 'ram_revenue_stream_history'
+    ) THEN
+        RAISE EXCEPTION 'Table ram_revenue_stream_history does not exist in schema %.', schema_name;
+    END IF;
+
+    -- Check the data_archival_flag and data_arc_back_in_months for the specified plan
+    SELECT data_archival_flag, 
+           (data_arc_back_in_months || ' months')::interval
+    INTO data_archival_flag, archive_interval
+    FROM format('%I.ram_revenue_stream_history', schema_name)::regclass
+    WHERE plan_name_column = $1
+    LIMIT 1;
+
+    -- If the data_archival_flag is 'y' and archive_interval is valid, proceed
+    IF data_archival_flag = 'y' AND archive_interval IS NOT NULL THEN
+        -- Check if the history table exists and create it if not
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'history'
+              AND table_name = table_basename
+        ) THEN
+            EXECUTE format(
+                'CREATE TABLE %I.%I AS TABLE %I.%I WITH NO DATA;',
+                'history', table_basename, schema_name, table_basename
+            );
+            RAISE NOTICE 'Created history table %.', history_table_name;
+        END IF;
+
+        -- Archive data based on the interval
+        EXECUTE format(
+            'INSERT INTO %I.%I SELECT * FROM %I.%I WHERE %I < NOW() - $1;',
+            'history', table_basename, schema_name, table_basename, filter_column_name
+        )
+        USING archive_interval;
+
+        RAISE NOTICE 'Archived data from table % to table %.', tbl_name, history_table_name;
+
+        -- Delete archived data from the source table
+        EXECUTE format(
+            'DELETE FROM %I.%I WHERE %I < NOW() - $1;',
+            schema_name, table_basename, filter_column_name
+        )
+        USING archive_interval;
+
+        RAISE NOTICE 'Deleted archived data from table %.', tbl_name;
+    ELSE
+        RAISE NOTICE 'No data archived for table % as conditions are not met.', tbl_name;
+    END IF;
+END;
+$BODY$;
+
 
