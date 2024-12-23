@@ -5,3 +5,49 @@ WHERE wait_event = 'BufferMapping';
 SELECT relname, seq_scan, seq_tup_read, idx_scan, idx_tup_fetch
 FROM pg_stat_all_tables
 ORDER BY seq_scan DESC LIMIT 10;
+-----------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE history.archive_data_older_than_3_years(
+	IN tbl_name text,
+	IN filter_column_name text)
+LANGUAGE 'plpgsql'
+AS $BODY$
+DECLARE
+    history_table_name TEXT;
+    schema_name TEXT;
+    table_basename TEXT;
+BEGIN
+    schema_name := split_part(tbl_name, '.', 1);
+    table_basename := split_part(tbl_name, '.', 2);
+
+    -- Derive history table name
+    history_table_name := format('history.%s', table_basename);
+
+    -- Check if the history table exists and create if not
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'history'
+          AND table_name = table_basename
+    ) THEN
+        EXECUTE format(
+            'CREATE TABLE %I.%I AS TABLE %I.%I WITH NO DATA;',
+            'history', table_basename, schema_name, table_basename
+        );
+        RAISE NOTICE 'Created history table %.', history_table_name;
+    END IF;
+
+    -- Move data older than 3 yrs to the history table
+    EXECUTE format(
+        'INSERT INTO %I.%I SELECT * FROM %I.%I WHERE %I < NOW() - INTERVAL ''3 years'';',
+        'history', table_basename, schema_name, table_basename, filter_column_name
+    );
+
+    -- Delete archived 3 yrs old data from source tables
+    EXECUTE format(
+        'DELETE FROM %I.%I WHERE %I < NOW() - INTERVAL ''3 years'';',
+        schema_name, table_basename, filter_column_name
+    );
+
+    RAISE NOTICE 'Archived data from table % to table %.', tbl_name, history_table_name;
+END;
+$BODY$;
