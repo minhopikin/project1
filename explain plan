@@ -17,10 +17,12 @@ FROM
 JOIN
     pg_index ON pg_index.indexrelid = pg_stat_user_indexes.indexrelid
 WHERE
-    pg_stat_user_indexes.idx_scan = 0
-    AND pg_stat_user_indexes.last_vacuum >= NOW() - INTERVAL '30 days'
+    pg_stat_user_indexes.idx_scan = 0 -- Indexes that haven't been used
 ORDER BY
     pg_relation_size(pg_stat_user_indexes.indexrelid) DESC;
+--------------------
+SELECT pg_stat_reset_time FROM pg_stat_database WHERE datname = current_database();
+
 
 
 
