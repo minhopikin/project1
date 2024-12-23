@@ -6,9 +6,10 @@ SELECT relname, seq_scan, seq_tup_read, idx_scan, idx_tup_fetch
 FROM pg_stat_all_tables
 ORDER BY seq_scan DESC LIMIT 10;
 -----------------------------------------------------------------
-CREATE OR REPLACE PROCEDURE history.unarchive_data_older_than_3_years(
-    IN tbl_name text,
-    IN filter_column_name text)
+CREATE OR REPLACE PROCEDURE history.unarchive_data(
+    IN tbl_name text,  -- Original table name (schema.table_name)
+    IN filter_column_name text -- Column used for filtering (e.g., date column)
+)
 LANGUAGE 'plpgsql'
 AS $BODY$
 DECLARE
@@ -32,42 +33,37 @@ BEGIN
     -- Derive history table name
     history_table_name := format('history.%s', table_basename);
 
-    -- Start transaction
-    BEGIN
-        -- Check if the history table exists
-        IF NOT EXISTS (
-            SELECT 1
-            FROM information_schema.tables
-            WHERE table_schema = 'history'
-              AND table_name = table_basename
-        ) THEN
-            RAISE EXCEPTION 'History table % does not exist.', history_table_name;
-        END IF;
+    -- Validate that the history table exists
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'history'
+          AND table_name = table_basename
+    ) THEN
+        RAISE EXCEPTION 'History table % does not exist.', history_table_name;
+    END IF;
 
-        -- Unarchive data
-        EXECUTE format(
-            'INSERT INTO %I.%I SELECT * FROM %I.%I WHERE %I < NOW() - INTERVAL ''3 years'';',
-            schema_name, table_basename, 'history', table_basename, filter_column_name
-        )
-        USING filter_column_name;
+    -- Unarchive data back to the original table
+    EXECUTE format(
+        'INSERT INTO %I.%I SELECT * FROM %I.%I;',
+        schema_name, table_basename, 'history', table_basename
+    );
 
-        GET DIAGNOSTICS row_count = ROW_COUNT;
-        RAISE NOTICE 'Restored % rows from history table % to table %.', row_count, history_table_name, tbl_name;
+    -- Log the number of rows restored
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RAISE NOTICE 'Restored % rows from history table % to table %.', row_count, history_table_name, tbl_name;
 
-        -- Delete unarchived data from the history table
-        EXECUTE format(
-            'DELETE FROM %I.%I WHERE %I < NOW() - INTERVAL ''3 years'';',
-            'history', table_basename, filter_column_name
-        );
+    -- Remove restored data from the history table
+    EXECUTE format(
+        'DELETE FROM %I.%I;',
+        'history', table_basename
+    );
 
-        GET DIAGNOSTICS row_count = ROW_COUNT;
-        RAISE NOTICE 'Deleted % rows from history table %.', row_count, history_table_name;
-
-    -- Commit transaction
-    EXCEPTION WHEN OTHERS THEN
-        RAISE EXCEPTION 'Error during unarchiving: %', SQLERRM;
-    END;
+    -- Log the number of rows deleted
+    GET DIAGNOSTICS row_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % rows from history table %.', row_count, history_table_name;
 
     RAISE NOTICE 'Unarchiving complete for table %.', tbl_name;
 END;
 $BODY$;
+
