@@ -6,48 +6,68 @@ SELECT relname, seq_scan, seq_tup_read, idx_scan, idx_tup_fetch
 FROM pg_stat_all_tables
 ORDER BY seq_scan DESC LIMIT 10;
 -----------------------------------------------------------------
-CREATE OR REPLACE PROCEDURE history.archive_data_older_than_3_years(
-	IN tbl_name text,
-	IN filter_column_name text)
+CREATE OR REPLACE PROCEDURE history.unarchive_data_older_than_3_years(
+    IN tbl_name text,
+    IN filter_column_name text)
 LANGUAGE 'plpgsql'
 AS $BODY$
 DECLARE
     history_table_name TEXT;
     schema_name TEXT;
     table_basename TEXT;
+    row_count INT;
 BEGIN
+    -- Validate input parameters
+    IF tbl_name IS NULL OR tbl_name = '' THEN
+        RAISE EXCEPTION 'Table name must not be NULL or empty.';
+    END IF;
+    IF filter_column_name IS NULL OR filter_column_name = '' THEN
+        RAISE EXCEPTION 'Filter column name must not be NULL or empty.';
+    END IF;
+
+    -- Extract schema and table base name
     schema_name := split_part(tbl_name, '.', 1);
     table_basename := split_part(tbl_name, '.', 2);
 
     -- Derive history table name
     history_table_name := format('history.%s', table_basename);
 
-    -- Check if the history table exists and create if not
-    IF NOT EXISTS (
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = 'history'
-          AND table_name = table_basename
-    ) THEN
+    -- Start transaction
+    BEGIN
+        -- Check if the history table exists
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'history'
+              AND table_name = table_basename
+        ) THEN
+            RAISE EXCEPTION 'History table % does not exist.', history_table_name;
+        END IF;
+
+        -- Unarchive data
         EXECUTE format(
-            'CREATE TABLE %I.%I AS TABLE %I.%I WITH NO DATA;',
-            'history', table_basename, schema_name, table_basename
+            'INSERT INTO %I.%I SELECT * FROM %I.%I WHERE %I < NOW() - INTERVAL ''3 years'';',
+            schema_name, table_basename, 'history', table_basename, filter_column_name
+        )
+        USING filter_column_name;
+
+        GET DIAGNOSTICS row_count = ROW_COUNT;
+        RAISE NOTICE 'Restored % rows from history table % to table %.', row_count, history_table_name, tbl_name;
+
+        -- Delete unarchived data from the history table
+        EXECUTE format(
+            'DELETE FROM %I.%I WHERE %I < NOW() - INTERVAL ''3 years'';',
+            'history', table_basename, filter_column_name
         );
-        RAISE NOTICE 'Created history table %.', history_table_name;
-    END IF;
 
-    -- Move data older than 3 yrs to the history table
-    EXECUTE format(
-        'INSERT INTO %I.%I SELECT * FROM %I.%I WHERE %I < NOW() - INTERVAL ''3 years'';',
-        'history', table_basename, schema_name, table_basename, filter_column_name
-    );
+        GET DIAGNOSTICS row_count = ROW_COUNT;
+        RAISE NOTICE 'Deleted % rows from history table %.', row_count, history_table_name;
 
-    -- Delete archived 3 yrs old data from source tables
-    EXECUTE format(
-        'DELETE FROM %I.%I WHERE %I < NOW() - INTERVAL ''3 years'';',
-        schema_name, table_basename, filter_column_name
-    );
+    -- Commit transaction
+    EXCEPTION WHEN OTHERS THEN
+        RAISE EXCEPTION 'Error during unarchiving: %', SQLERRM;
+    END;
 
-    RAISE NOTICE 'Archived data from table % to table %.', tbl_name, history_table_name;
+    RAISE NOTICE 'Unarchiving complete for table %.', tbl_name;
 END;
 $BODY$;
