@@ -1,938 +1,115 @@
-SELECT pid, usename, query, wait_event_type, wait_event
-FROM pg_stat_activity
-WHERE wait_event = 'BufferMapping';
---------------------------------------------
-SELECT relname, seq_scan, seq_tup_read, idx_scan, idx_tup_fetch
-FROM pg_stat_all_tables
-ORDER BY seq_scan DESC LIMIT 10;
------------------------------------------------------------------
-SELECT
-    pg_stat_user_indexes.schemaname AS schema_name,
-    pg_stat_user_indexes.relname AS table_name,
-    pg_stat_user_indexes.indexrelname AS index_name,
-    pg_stat_user_indexes.idx_scan AS index_scans,
-    pg_size_pretty(pg_relation_size(pg_stat_user_indexes.indexrelid)) AS index_size
-FROM
-    pg_stat_user_indexes
-JOIN
-    pg_index ON pg_index.indexrelid = pg_stat_user_indexes.indexrelid
-WHERE
-    pg_stat_user_indexes.idx_scan = 0 -- Indexes that haven't been used
-ORDER BY
-    pg_relation_size(pg_stat_user_indexes.indexrelid) DESC;
---------------------
-SELECT pg_stat_reset_time FROM pg_stat_database WHERE datname = current_database();
------------------------------------
+CREATE OR REPLACE FUNCTION sp_insert_audit_master() RETURNS VOID AS $$
+BEGIN
+  PERFORM sp_data_arc_log('Start of audit master insert');
 
-CREATE OR REPLACE PACKAGE WEB.p_ram_data_archival IS
-    /* *********************************************************************************************
-    ** Program:  p_ram_data_archival
-    ** Purpose:  Data Archival
-    ** Created on 01/28/2014
-    ** Modification history
-    **      date               author                 harvest            description
-    ** ----------------------------------------------------------------------------------------------
-    **     07/17/2014   Cognizant Offshore      FINADR0120/TD37415       initial version
-    **     08/07/2014   Cognizant Offshore      FINADR0120/TD37415       Added announcement feature
-    **     09/25/2014   Cognizant Offshore      FINADR0135/TD37498       Modified announcement feature to alert
-    **     01/13/2016   Yashendra K             FINADR0148               Modified code to update Payment Archive Amount
-    ** *********************************************************************************************/
+  INSERT INTO batch_audit_master
+    (seq_audit_id, application_id, process_name, status, insert_datetime, insert_process, insert_user, plan_name)
+  SELECT g_seq_audit_id,
+         ba.application_id,
+         c_process,
+         c_running_status,
+         NOW(),
+         c_process,
+         CURRENT_USER,
+         g_plan_name
+    FROM batch_application ba
+   WHERE ba.application_name = c_application;
 
-    /******************************************************************
-    * constants
-    *******************************************************************/
-    c_fetch_limit       CONSTANT NUMBER := 500;
-    c_default_term_date CONSTANT DATE := to_date('12/31/9999', 'MM/DD/YYYY');
-    c_process           CONSTANT VARCHAR2(10) := 'DATA-ARCH';
-    c_running_status    CONSTANT CHAR(1) := 'R';
-    c_application       CONSTANT VARCHAR2(10) := 'RAM';
-    c_alert             CONSTANT VARCHAR2(10) := 'ALERT';
+  PERFORM sp_data_arc_log('End of audit master insert');
+END;
+$$ LANGUAGE plpgsql;
+--------------------------------------------------------------------------
 
-    /*******************************************************************
-    * global variables
-    *******************************************************************/
-    g_plan_name      ram_revenue_stream.plan_name%TYPE;
-    g_go_live_date   ram_revenue_stream_history.golive_date%TYPE;
-    g_seq_revenue_id ram_revenue_stream_history.seq_revenue_id%TYPE;
-    g_seq_audit_id   batch_audit_master.seq_audit_id%TYPE;
-    g_company_code   ram_revenue_stream.company_code%TYPE;
-    g_revenue_type   ram_revenue_stream.revenue_type%TYPE;
+CREATE OR REPLACE FUNCTION sp_select_golive_date() RETURNS VOID AS $$
+BEGIN
+  -- Select the minimum go-live date and store it in the global variable
+  SELECT MIN(golive_date)
+    INTO g_go_live_date
+    FROM ram_revenue_stream_history
+   WHERE plan_name = g_plan_name
+     AND data_archival_flag = 'Y'
+     AND data_arc_back_in_months IS NOT NULL;
 
-    /******************************************************************
-    * sp_data_archival
-    * Main procedure that calls other procedures
-    ******************************************************************/
-    PROCEDURE sp_data_archival(p_plan_name      VARCHAR2,
-                               p_seq_revenue_id NUMBER,
-                               p_seq_audit_id   NUMBER);
+  -- Log the selected go-live date
+  PERFORM sp_data_arc_log('Selected golive date: ' || g_go_live_date::TEXT);
+END;
+$$ LANGUAGE plpgsql;
 
-    /******************************************************************
-    * sp_data_arc_log
-    * Inserts dbms log into the table.
-    ******************************************************************/
+----------------------------------------------------
+CREATE OR REPLACE FUNCTION sp_data_archival(
+  p_plan_name VARCHAR,
+  p_seq_revenue_id NUMERIC,
+  p_seq_audit_id NUMERIC
+) RETURNS VOID AS $$
+BEGIN
+  -- Assign parameters to global variables
+  g_plan_name := p_plan_name;
+  g_seq_revenue_id := p_seq_revenue_id;
+  g_seq_audit_id := p_seq_audit_id;
 
-    PROCEDURE sp_data_arc_log(p_data_arc_log VARCHAR2);
+  -- Delete existing logs and initialize archival process
+  PERFORM sp_dbmslog_del();
+  PERFORM sp_data_arc_log('Start of data archival');
 
-    /******************************************************************
-    * sp_dbmslog_del
-    * Deletes the ram_data_arc_dbmsoutput table.
-    ******************************************************************/
+  -- Insert audit record and select the go-live date
+  PERFORM sp_insert_audit_master();
+  PERFORM sp_select_golive_date();
+  PERFORM sp_data_arc_log('New golive date :: ' || g_go_live_date::TEXT);
 
-    PROCEDURE sp_dbmslog_del;
+  -- Perform archival operations if a go-live date is determined
+  IF g_go_live_date IS NOT NULL THEN
+    PERFORM sp_move_inv_dtl_data_to_hist();
+    PERFORM sp_move_inv_arc_data_to_hist();
+    PERFORM sp_move_pay_dtl_data_to_hist();
+    PERFORM sp_move_pay_arc_data_to_hist();
+    PERFORM sp_move_pay_stg_data_to_hist();
+    PERFORM sp_move_pay_supp_data_to_hist();
+    PERFORM sp_move_rec_dtl_data_to_hist();
+    PERFORM sp_move_rec_arc_data_to_hist();
+    PERFORM sp_revenue_stream_update();
+    PERFORM sp_insert_alert();
+  END IF;
 
-    /******************************************************************
-    * sp_insert_alert
-    * Inserts alert into ram_alert_announcement table after
-    * deleting the previous alert
-    ******************************************************************/
+  -- Log completion of the archival process
+  PERFORM sp_data_arc_log('End of data archival');
+END;
+$$ LANGUAGE plpgsql;
+------------------------------------
 
-    PROCEDURE sp_insert_alert;
+CREATE OR REPLACE FUNCTION sp_move_inv_arc_data_to_hist() RETURNS VOID AS $$
+DECLARE
+  v_tbl_rowid UUID[]; -- Array to store primary keys or unique identifiers
+BEGIN
+  PERFORM sp_data_arc_log('Start of invoice data archival from archive to history table');
 
-    /******************************************************************
-    * sp_insert_audit_master
-    * Insert into audit master table
-    ******************************************************************/
+  -- Fetch row IDs matching the criteria in batches
+  FOR v_tbl_rowid IN
+    SELECT id -- Replace "id" with the primary key of ram_invoice_archive
+    FROM ram_invoice_archive
+    WHERE plan_name = g_plan_name
+      AND seq_invoice_header_id IN
+          (SELECT seq_invoice_header_id
+             FROM ram_invoice_header
+            WHERE invoice_date < g_go_live_date
+              AND seq_revenue_id IN
+                  (SELECT seq_revenue_id
+                     FROM ram_revenue_stream
+                    WHERE plan_name = g_plan_name
+                      AND (seq_revenue_id = g_seq_revenue_id OR
+                          base_seq_revenue_id = g_seq_revenue_id)))
+  LOOP
+    -- Move data to the history table
+    INSERT INTO ram_invoice_history
+    SELECT *
+      FROM ram_invoice_archive
+     WHERE id = v_tbl_rowid;
 
-    PROCEDURE sp_insert_audit_master;
+    -- Delete data from the archive table
+    DELETE FROM ram_invoice_archive
+     WHERE id = v_tbl_rowid;
+  END LOOP;
 
-    /******************************************************************
-    * sp_move_inv_arc_data_to_hist
-    * Move data from invoice archive to invoice history table
-    ******************************************************************/
-    PROCEDURE sp_move_inv_arc_data_to_hist;
-
-    /******************************************************************
-    * sp_move_inv_dtl_data_to_hist
-    * Move data from invoice detail to invoice history table
-    ******************************************************************/
-    PROCEDURE sp_move_inv_dtl_data_to_hist;
-
-    /******************************************************************
-    * sp_move_pay_arc_data_to_hist
-    * Move data from payment archive to payment history table
-    ******************************************************************/
-    PROCEDURE sp_move_pay_arc_data_to_hist;
-
-    /******************************************************************
-    * sp_move_pay_dtl_data_to_hist
-    * Move data from payment detail to payment history table
-    ******************************************************************/
-    PROCEDURE sp_move_pay_dtl_data_to_hist;
-
-    /******************************************************************
-    * sp_move_pay_stg_data_to_hist
-    * Move data from payment stage to payment history table
-    ******************************************************************/
-    PROCEDURE sp_move_pay_stg_data_to_hist;
-
-    /******************************************************************
-    * sp_move_pay_supp_data_to_hist
-    * Move data from payment supplementary to payment history table
-    ******************************************************************/
-    PROCEDURE sp_move_pay_supp_data_to_hist;
-
-    /******************************************************************
-    * sp_move_rec_arc_data_to_hist
-    * Move data from recon archive to recon history table
-    ******************************************************************/
-    PROCEDURE sp_move_rec_arc_data_to_hist;
-
-    /******************************************************************
-    * sp_move_rec_dtl_data_to_hist
-    * Move data from recon detail to recon history table
-    ******************************************************************/
-    PROCEDURE sp_move_rec_dtl_data_to_hist;
-
-    /******************************************************************
-    * sp_revenue_stream_update
-    * Update golive_date in revenue stream and history tables
-    ******************************************************************/
-    PROCEDURE sp_revenue_stream_update;
-
-    /******************************************************************
-    * sp_select_golive_date
-    * Select golive date when data arc flag is Y and data arc back in mnths is not null
-    ******************************************************************/
-    PROCEDURE sp_select_golive_date;
-
-END p_ram_data_archival;
-/
-CREATE OR REPLACE PACKAGE BODY web.p_ram_data_archival IS
-
-  /******************************************************************
-  * sp_data_archival
-  * Main procedure that calls other procedures
-  ******************************************************************/
-  PROCEDURE sp_data_archival(p_plan_name      VARCHAR2,
-                             p_seq_revenue_id NUMBER,
-                             p_seq_audit_id   NUMBER) IS
-  
-  BEGIN
-  
-    g_plan_name      := p_plan_name;
-    g_seq_revenue_id := p_seq_revenue_id;
-    g_seq_audit_id   := p_seq_audit_id;
-  
-    sp_dbmslog_del;
-    sp_data_arc_log('Start of data archival');
-    sp_insert_audit_master;
-    sp_select_golive_date;
-    sp_data_arc_log('New golive date ::' || g_go_live_date);
-  
-    IF g_go_live_date IS NOT NULL THEN
-      sp_move_inv_dtl_data_to_hist;
-      sp_move_inv_arc_data_to_hist;
-    
-      sp_move_pay_dtl_data_to_hist;
-      sp_move_pay_arc_data_to_hist;
-      sp_move_pay_stg_data_to_hist;
-      sp_move_pay_supp_data_to_hist;
-    
-      sp_move_rec_dtl_data_to_hist;
-      sp_move_rec_arc_data_to_hist;
-    
-      sp_revenue_stream_update;
-    
-      sp_insert_alert;
-    END IF;
-  
-    sp_data_arc_log('End of data archival');
-  
-  END sp_data_archival;
-
-  /******************************************************************
-  * sp_data_arc_log
-  * Inserts dbms log into the table.
-  ******************************************************************/
-
-  PROCEDURE sp_data_arc_log(p_data_arc_log VARCHAR2) IS
-  
-  BEGIN
-  
-    INSERT INTO ram_data_arc_dbmsoutput
-      (plan_name, seq_revenue_id, dbms_log, insert_datetime)
-    VALUES
-      (g_plan_name, g_seq_revenue_id, p_data_arc_log, systimestamp);
-  
-    COMMIT;
-  
-  END sp_data_arc_log;
-
-  /******************************************************************
-  * sp_dbmslog_del
-  * Deletes the ram_data_arc_dbmsoutput table.
-  ******************************************************************/
-
-  PROCEDURE sp_dbmslog_del IS
-  
-  BEGIN
-  
-    DELETE FROM ram_data_arc_dbmsoutput
-     WHERE plan_name = g_plan_name
-       AND seq_revenue_id = g_seq_revenue_id;
-  
-    COMMIT;
-  
-  END sp_dbmslog_del;
-
-  /******************************************************************
-  * sp_insert_alert
-  * Inserts alert into ram_alert_announcement table after
-  * deleting the previous alert
-  ******************************************************************/
-
-  PROCEDURE sp_insert_alert IS
-  
-  BEGIN
-  
-    sp_data_arc_log('Start of alert insert');
-  
-    DELETE FROM ram_alert_announcement
-     WHERE company_code = g_company_code
-       AND revenue_type = g_revenue_type
-       AND upper(msg_type) = c_alert
-       AND insert_process = c_process;
-  
-    INSERT INTO ram_alert_announcement
-      (message,
-       msg_type,
-       insert_datetime,
-       insert_process,
-       insert_user,
-       company_code,
-       revenue_type)
-    VALUES
-      ('Revenue dates older than ' || g_go_live_date ||
-       ' are no longer available online in RAM.',
-       c_alert,
-       SYSDATE,
-       c_process,
-       USER,
-       g_company_code,
-       g_revenue_type);
-  
-    COMMIT;
-  
-    sp_data_arc_log('End of alert insert');
-  
-  END sp_insert_alert;
-
-  /******************************************************************
-  * sp_insert_audit_master
-  * Insert into audit master table
-  ******************************************************************/
-  PROCEDURE sp_insert_audit_master IS
-  
-  BEGIN
-  
-    sp_data_arc_log('Start of audit master insert');
-  
-    INSERT INTO batch_audit_master
-      (seq_audit_id,
-       application_id,
-       process_name,
-       status,
-       insert_datetime,
-       insert_process,
-       insert_user,
-       plan_name)
-      SELECT g_seq_audit_id,
-             ba.application_id,
-             c_process,
-             c_running_status,
-             SYSDATE,
-             c_process,
-             USER,
-             g_plan_name
-        FROM batch_application ba
-       WHERE ba.application_name = c_application;
-  
-    COMMIT;
-  
-    sp_data_arc_log('End of audit master insert');
-  
-  END sp_insert_audit_master;
-
-  /******************************************************************
-  * sp_move_inv_arc_data_to_hist
-  * Move data from invoice archive to invoice history table
-  ******************************************************************/
-
-  PROCEDURE sp_move_inv_arc_data_to_hist IS
-  
-    TYPE t_tbl_rowid IS TABLE OF ROWID INDEX BY PLS_INTEGER;
-    v_cursor    SYS_REFCURSOR;
-    v_tbl_rowid t_tbl_rowid;
-  
-  BEGIN
-  
-    sp_data_arc_log('Start of invoice data archival from archive to history table');
-  
-    OPEN v_cursor FOR
-      SELECT ROWID
-        FROM ram_invoice_archive
-       WHERE plan_name = g_plan_name
-         AND seq_invoice_header_id IN
-             (SELECT seq_invoice_header_id
-                FROM ram_invoice_header
-               WHERE invoice_date < g_go_live_date
-                 AND seq_revenue_id IN
-                     (SELECT seq_revenue_id
-                        FROM ram_revenue_stream
-                       WHERE plan_name = g_plan_name
-                         AND (seq_revenue_id = g_seq_revenue_id OR
-                             base_seq_revenue_id = g_seq_revenue_id)));
-  
-    LOOP
-    
-      FETCH v_cursor BULK COLLECT
-        INTO v_tbl_rowid LIMIT c_fetch_limit;
-    
-      EXIT WHEN v_tbl_rowid.count() = 0;
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        INSERT INTO ram_invoice_history
-          SELECT *
-            FROM ram_invoice_archive
-           WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        DELETE FROM ram_invoice_archive WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      COMMIT;
-    
-    END LOOP;
-  
-    CLOSE v_cursor;
-  
-    sp_data_arc_log('End of invoice data archival from archive to history table');
-  
-  END sp_move_inv_arc_data_to_hist;
-
-  /******************************************************************
-  * sp_move_inv_dtl_data_to_hist
-  * Move data from invoice detail to invoice history table
-  ******************************************************************/
-  PROCEDURE sp_move_inv_dtl_data_to_hist IS
-  
-    TYPE t_tbl_rowid IS TABLE OF ROWID INDEX BY PLS_INTEGER;
-    v_cursor    SYS_REFCURSOR;
-    v_tbl_rowid t_tbl_rowid;
-  
-  BEGIN
-  
-    sp_data_arc_log('Start of invoice data archival from detail to history table');
-  
-    OPEN v_cursor FOR
-      SELECT ROWID
-        FROM ram_invoice_detail
-       WHERE plan_name = g_plan_name
-         AND seq_invoice_header_id IN
-             (SELECT seq_invoice_header_id
-                FROM ram_invoice_header
-               WHERE invoice_date < g_go_live_date
-                 AND seq_revenue_id IN
-                     (SELECT seq_revenue_id
-                        FROM ram_revenue_stream
-                       WHERE plan_name = g_plan_name
-                         AND (seq_revenue_id = g_seq_revenue_id OR
-                             base_seq_revenue_id = g_seq_revenue_id)));
-  
-    LOOP
-    
-      FETCH v_cursor BULK COLLECT
-        INTO v_tbl_rowid LIMIT c_fetch_limit;
-    
-      EXIT WHEN v_tbl_rowid.count() = 0;
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        INSERT INTO ram_invoice_history
-          SELECT *
-            FROM ram_invoice_detail
-           WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        DELETE FROM ram_invoice_detail WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      COMMIT;
-    
-    END LOOP;
-  
-    CLOSE v_cursor;
-  
-    sp_data_arc_log('End of invoice data archival from detail to history table');
-  
-  END sp_move_inv_dtl_data_to_hist;
-
-  /******************************************************************
-  * sp_move_pay_arc_data_to_hist
-  * Move data from payment archive to payment history table
-  * FINADR0148- Changes made to update archived payment amount in ram_payment_header table
-  ******************************************************************/
-  PROCEDURE sp_move_pay_arc_data_to_hist IS
-  
-    TYPE t_tbl_rowid IS TABLE OF ROWID INDEX BY PLS_INTEGER;
-    TYPE t_tbl_seq_pay_hdr_id IS TABLE OF ram_payment_archive.seq_payment_header_id%TYPE;
-    TYPE t_tbl_seq_pay_dtl_id IS TABLE OF ram_payment_archive.seq_payment_detail_id%TYPE;
-    v_cursor             SYS_REFCURSOR;
-    v_tbl_rowid          t_tbl_rowid;
-    v_tbl_seq_pay_hdr_id t_tbl_seq_pay_hdr_id;
-    v_tbl_seq_pay_dtl_id t_tbl_seq_pay_dtl_id;
-  
-  BEGIN
-  
-    sp_data_arc_log('Start of payment data archival from archive to history table');
-  
-    OPEN v_cursor FOR
-      SELECT ROWID, seq_payment_header_id, seq_payment_detail_id
-        FROM ram_payment_archive
-       WHERE payment_start_date < g_go_live_date
-         AND plan_name = g_plan_name
-         AND seq_revenue_id IN
-             (SELECT rrs1.seq_revenue_id
-                FROM ram_payment_type_config rptc,
-                     ram_revenue_stream      rrs1,
-                     ram_revenue_stream      rrs2
-               WHERE rptc.company_code = rrs1.company_code
-                 AND rptc.payment_type = rrs1.revenue_type
-                 AND rrs1.plan_name = g_plan_name
-                 AND rrs2.plan_name = rrs1.plan_name
-                 AND rrs2.company_code = rrs1.company_code
-                 AND rrs2.seq_revenue_id = g_seq_revenue_id
-                 AND rrs2.revenue_type = rptc.revenue_type
-              UNION
-              SELECT g_seq_revenue_id FROM dual);
-  
-    LOOP
-    
-      FETCH v_cursor BULK COLLECT
-        INTO v_tbl_rowid,
-             v_tbl_seq_pay_hdr_id,
-             v_tbl_seq_pay_dtl_id LIMIT c_fetch_limit;
-    
-      EXIT WHEN v_tbl_rowid.count() = 0;
-      /**FINADR0148- Added new update query to update payment archive amount in payment header table **/
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        UPDATE ram_payment_header payhead
-           SET update_datetime        = SYSDATE,
-               update_user            = USER,
-               update_process         = c_process,
-               payment_archive_amount = nvl(payment_archive_amount, 0) +
-                                        nvl((SELECT nvl(payment_amount,
-                                                                 0)
-                                              FROM ram_payment_archive
-                                             WHERE ROWID =
-                                                   v_tbl_rowid(v_indx)
-                                               AND status NOT IN
-                                                   ('D', 'H', 'V')
-                                               AND plan_name = g_plan_name),
-                                            0)
-         WHERE payhead.seq_payment_header_id = v_tbl_seq_pay_hdr_id(v_indx)
-           AND payhead.plan_name = g_plan_name;
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        INSERT INTO ram_payment_history
-          SELECT *
-            FROM ram_payment_archive
-           WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        DELETE FROM ram_payment_archive WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        INSERT INTO ram_payment_add_data_history
-          SELECT *
-            FROM ram_payment_additional_data
-           WHERE seq_payment_header_id = v_tbl_seq_pay_hdr_id(v_indx)
-             AND seq_payment_detail_id = v_tbl_seq_pay_dtl_id(v_indx)
-             AND plan_name = g_plan_name;
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        DELETE FROM ram_payment_additional_data
-         WHERE seq_payment_header_id = v_tbl_seq_pay_hdr_id(v_indx)
-           AND seq_payment_detail_id = v_tbl_seq_pay_dtl_id(v_indx)
-           AND plan_name = g_plan_name;
-    
-      COMMIT;
-    
-    END LOOP;
-  
-    CLOSE v_cursor;
-  
-    sp_data_arc_log('End of payment data archival from archive to history table');
-  
-  END sp_move_pay_arc_data_to_hist;
-
-  /******************************************************************
-  * sp_move_pay_dtl_data_to_hist
-  * Move data from payment detail to payment history table
-  ******************************************************************/
-  PROCEDURE sp_move_pay_dtl_data_to_hist IS
-  
-    TYPE t_tbl_rowid IS TABLE OF ROWID INDEX BY PLS_INTEGER;
-    TYPE t_tbl_seq_pay_hdr_id IS TABLE OF ram_payment_archive.seq_payment_header_id%TYPE;
-    TYPE t_tbl_seq_pay_dtl_id IS TABLE OF ram_payment_archive.seq_payment_detail_id%TYPE;
-    v_cursor             SYS_REFCURSOR;
-    v_tbl_rowid          t_tbl_rowid;
-    v_tbl_seq_pay_hdr_id t_tbl_seq_pay_hdr_id;
-    v_tbl_seq_pay_dtl_id t_tbl_seq_pay_dtl_id;
-  
-  BEGIN
-  
-    sp_data_arc_log('Start of payment data archival from detail to history table');
-  
-    OPEN v_cursor FOR
-      SELECT ROWID, seq_payment_header_id, seq_payment_detail_id
-        FROM ram_payment_detail
-       WHERE payment_start_date < g_go_live_date
-         AND plan_name = g_plan_name
-         AND seq_revenue_id IN
-             (SELECT rrs1.seq_revenue_id
-                FROM ram_payment_type_config rptc,
-                     ram_revenue_stream      rrs1,
-                     ram_revenue_stream      rrs2
-               WHERE rptc.company_code = rrs1.company_code
-                 AND rptc.payment_type = rrs1.revenue_type
-                 AND rrs1.plan_name = g_plan_name
-                 AND rrs2.plan_name = rrs1.plan_name
-                 AND rrs2.company_code = rrs1.company_code
-                 AND rrs2.seq_revenue_id = g_seq_revenue_id
-                 AND rrs2.revenue_type = rptc.revenue_type
-              UNION
-              SELECT g_seq_revenue_id FROM dual);
-  
-    LOOP
-    
-      FETCH v_cursor BULK COLLECT
-        INTO v_tbl_rowid,
-             v_tbl_seq_pay_hdr_id,
-             v_tbl_seq_pay_dtl_id LIMIT c_fetch_limit;
-    
-      EXIT WHEN v_tbl_rowid.count() = 0;
-    
-      /**FINADR0148- Added new update query to update payment archive amount in payment header table **/
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        UPDATE ram_payment_header payhead
-           SET update_datetime        = SYSDATE,
-               update_user            = USER,
-               update_process         = c_process,
-               payment_archive_amount = nvl(payment_archive_amount, 0) +
-                                        nvl((SELECT nvl(payment_amount,
-                                                                 0)
-                                              FROM ram_payment_detail
-                                             WHERE ROWID =
-                                                   v_tbl_rowid(v_indx)
-                                               AND status NOT IN
-                                                   ('D', 'H', 'V')
-                                               AND plan_name = g_plan_name),
-                                            0)
-         WHERE payhead.seq_payment_header_id = v_tbl_seq_pay_hdr_id(v_indx)
-           AND payhead.plan_name = g_plan_name;
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        INSERT INTO ram_payment_history
-          SELECT *
-            FROM ram_payment_detail
-           WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        DELETE FROM ram_payment_detail WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        INSERT INTO ram_payment_add_data_history
-          SELECT *
-            FROM ram_payment_additional_data
-           WHERE seq_payment_header_id = v_tbl_seq_pay_hdr_id(v_indx)
-             AND seq_payment_detail_id = v_tbl_seq_pay_dtl_id(v_indx)
-             AND plan_name = g_plan_name;
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        DELETE FROM ram_payment_additional_data
-         WHERE seq_payment_header_id = v_tbl_seq_pay_hdr_id(v_indx)
-           AND seq_payment_detail_id = v_tbl_seq_pay_dtl_id(v_indx)
-           AND plan_name = g_plan_name;
-    
-      COMMIT;
-    
-    END LOOP;
-  
-    CLOSE v_cursor;
-  
-    sp_data_arc_log('End of payment data archival from detail to history table');
-  
-  END sp_move_pay_dtl_data_to_hist;
-
-  /******************************************************************
-  * sp_move_pay_stg_data_to_hist
-  * Move data from payment stage to payment history table
-  ******************************************************************/
-  PROCEDURE sp_move_pay_stg_data_to_hist IS
-  
-    TYPE t_tbl_rowid IS TABLE OF ROWID INDEX BY PLS_INTEGER;
-    TYPE t_tbl_seq_pay_hdr_id IS TABLE OF ram_payment_archive.seq_payment_header_id%TYPE;
-    v_cursor             SYS_REFCURSOR;
-    v_tbl_rowid          t_tbl_rowid;
-    v_tbl_seq_pay_hdr_id t_tbl_seq_pay_hdr_id;
-  
-  BEGIN
-  
-    sp_data_arc_log('Start of payment data archival from stage to history table');
-  
-    OPEN v_cursor FOR
-      SELECT ROWID, seq_payment_header_id
-        FROM ram_payment_stage
-       WHERE plan_name = g_plan_name
-         AND seq_payment_header_id IN
-             (SELECT seq_payment_header_id
-                FROM ram_payment_header
-               WHERE revenue_month < g_go_live_date
-                 AND plan_name = g_plan_name
-                 AND seq_revenue_id = g_seq_revenue_id);
-  
-    LOOP
-    
-      FETCH v_cursor BULK COLLECT
-        INTO v_tbl_rowid, v_tbl_seq_pay_hdr_id LIMIT c_fetch_limit;
-    
-      EXIT WHEN v_tbl_rowid.count() = 0;
-    
-      /**FINADR0148- Added new update query to update payment archive amount in payment header table **/
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        UPDATE ram_payment_header payhead
-           SET update_datetime        = SYSDATE,
-               update_user            = USER,
-               update_process         = c_process,
-               payment_archive_amount = nvl(payment_archive_amount, 0) +
-                                        nvl((SELECT to_number(nvl(payment_amount,
-                                                                 0))
-                                              FROM ram_payment_stage paystage
-                                             WHERE nvl(paystage.mco_transaction_type,
-                                                       -1) NOT IN ('8', '9')
-                                               AND paystage.error_status_reason NOT LIKE
-                                                   '%PAYMENT_AMOUNT%'
-                                               AND paystage.error_status_reason NOT LIKE
-                                                   '%Invalid Record length%'
-                                               AND paystage.status = 'E'
-                                               AND paystage.rowid =
-                                                   v_tbl_rowid(v_indx)
-                                               AND paystage.plan_name =
-                                                   g_plan_name),
-                                            0)
-         WHERE payhead.seq_payment_header_id = v_tbl_seq_pay_hdr_id(v_indx)
-           AND payhead.plan_name = g_plan_name;
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        INSERT INTO ram_payment_stage_history
-          SELECT *
-            FROM ram_payment_stage
-           WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        DELETE FROM ram_payment_stage WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      COMMIT;
-    
-    END LOOP;
-  
-    CLOSE v_cursor;
-  
-    sp_data_arc_log('End of payment data archival from stage to history table');
-  
-  END sp_move_pay_stg_data_to_hist;
-
-  /******************************************************************
-  * sp_move_pay_supp_data_to_hist
-  * Move data from payment supplementary to payment history table
-  ******************************************************************/
-  PROCEDURE sp_move_pay_supp_data_to_hist IS
-  
-    TYPE t_tbl_rowid IS TABLE OF ROWID INDEX BY PLS_INTEGER;
-    v_cursor    SYS_REFCURSOR;
-    v_tbl_rowid t_tbl_rowid;
-  
-  BEGIN
-  
-    sp_data_arc_log('Start of payment data archival from supplementary to history table');
-  
-    OPEN v_cursor FOR
-      SELECT ROWID
-        FROM ram_payment_supplementary
-       WHERE begin_service_date < g_go_live_date
-         AND seq_revenue_id IN
-             (SELECT rrs1.seq_revenue_id
-                FROM ram_payment_type_config rptc,
-                     ram_revenue_stream      rrs1,
-                     ram_revenue_stream      rrs2
-               WHERE rptc.company_code = rrs1.company_code
-                 AND rptc.payment_type = rrs1.revenue_type
-                 AND rrs1.plan_name = g_plan_name
-                 AND rrs2.plan_name = rrs1.plan_name
-                 AND rrs2.company_code = rrs1.company_code
-                 AND rrs2.seq_revenue_id = g_seq_revenue_id
-                 AND rrs2.revenue_type = rptc.revenue_type
-              UNION
-              SELECT g_seq_revenue_id FROM dual);
-  
-    LOOP
-    
-      FETCH v_cursor BULK COLLECT
-        INTO v_tbl_rowid LIMIT c_fetch_limit;
-    
-      EXIT WHEN v_tbl_rowid.count() = 0;
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        INSERT INTO ram_payment_supplement_history
-          SELECT *
-            FROM ram_payment_supplementary
-           WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        DELETE FROM ram_payment_supplementary
-         WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      COMMIT;
-    
-    END LOOP;
-  
-    CLOSE v_cursor;
-  
-    sp_data_arc_log('End of payment data archival from supplementary to history table');
-  
-  END sp_move_pay_supp_data_to_hist;
-
-  /******************************************************************
-  * sp_move_rec_arc_data_to_hist
-  * Move data from recon archive to recon history table
-  ******************************************************************/
-  PROCEDURE sp_move_rec_arc_data_to_hist IS
-  
-    TYPE t_tbl_rowid IS TABLE OF ROWID INDEX BY PLS_INTEGER;
-    v_cursor    SYS_REFCURSOR;
-    v_tbl_rowid t_tbl_rowid;
-  
-  BEGIN
-  
-    sp_data_arc_log('Start of recon data archival from archive to history table');
-  
-    OPEN v_cursor FOR
-      SELECT ROWID
-        FROM ram_reconciliation_archive
-       WHERE revenue_start_date < g_go_live_date
-         AND plan_name = g_plan_name
-         AND seq_revenue_id = g_seq_revenue_id;
-  
-    LOOP
-    
-      FETCH v_cursor BULK COLLECT
-        INTO v_tbl_rowid LIMIT c_fetch_limit;
-    
-      EXIT WHEN v_tbl_rowid.count() = 0;
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        INSERT INTO ram_reconciliation_history
-          SELECT *
-            FROM ram_reconciliation_archive
-           WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        DELETE FROM ram_reconciliation_archive
-         WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      COMMIT;
-    
-    END LOOP;
-  
-    CLOSE v_cursor;
-  
-    sp_data_arc_log('End of recon data archival from archive to history table');
-  
-  END sp_move_rec_arc_data_to_hist;
-
-  /******************************************************************
-  * sp_move_rec_dtl_data_to_hist
-  * Move data from recon detail to recon history table
-  ******************************************************************/
-  PROCEDURE sp_move_rec_dtl_data_to_hist IS
-  
-    TYPE t_tbl_rowid IS TABLE OF ROWID INDEX BY PLS_INTEGER;
-    v_cursor    SYS_REFCURSOR;
-    v_tbl_rowid t_tbl_rowid;
-  
-  BEGIN
-  
-    sp_data_arc_log('Start of recon data archival from detail to history table');
-  
-    OPEN v_cursor FOR
-      SELECT ROWID
-        FROM ram_reconciliation_detail
-       WHERE revenue_start_date < g_go_live_date
-         AND plan_name = g_plan_name
-         AND seq_revenue_id = g_seq_revenue_id;
-  
-    LOOP
-    
-      FETCH v_cursor BULK COLLECT
-        INTO v_tbl_rowid LIMIT c_fetch_limit;
-    
-      EXIT WHEN v_tbl_rowid.count() = 0;
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        INSERT INTO ram_reconciliation_history
-          SELECT *
-            FROM ram_reconciliation_detail
-           WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      FORALL v_indx IN 1 .. v_tbl_rowid.count
-        DELETE FROM ram_reconciliation_detail
-         WHERE ROWID = v_tbl_rowid(v_indx);
-    
-      COMMIT;
-    
-    END LOOP;
-  
-    CLOSE v_cursor;
-  
-    sp_data_arc_log('End of recon data archival from detail to history table');
-  
-  END sp_move_rec_dtl_data_to_hist;
-
-  /******************************************************************
-  * sp_revenue_stream_update
-  * Update golive_date in revenue stream and history tables
-  ******************************************************************/
-  PROCEDURE sp_revenue_stream_update IS
-  
-  BEGIN
-  
-    sp_data_arc_log('Start of revenue stream update');
-  
-    UPDATE ram_revenue_stream
-       SET golive_date     = g_go_live_date,
-           update_datetime = SYSDATE,
-           update_user     = USER,
-           update_process  = c_process
-     WHERE plan_name = g_plan_name
-       AND (seq_revenue_id = g_seq_revenue_id OR
-           base_seq_revenue_id = g_seq_revenue_id)
-       AND golive_date < SYSDATE;
-  
-    UPDATE ram_revenue_stream_history
-       SET golive_date     = g_go_live_date,
-           update_datetime = SYSDATE,
-           update_user     = USER,
-           update_process  = c_process
-     WHERE seq_revenue_id IN
-           (SELECT seq_revenue_id
-              FROM ram_revenue_stream
-             WHERE plan_name = g_plan_name
-               AND (seq_revenue_id = g_seq_revenue_id OR
-                   base_seq_revenue_id = g_seq_revenue_id))
-       AND golive_date < SYSDATE;
-  
-    COMMIT;
-  
-    sp_data_arc_log('End of revenue stream update');
-  
-  END sp_revenue_stream_update;
-
-  /******************************************************************
-  * sp_select_golive_date
-  * Select golive date when data arc flag is Y and data arc back in mnths is not null
-  ******************************************************************/
-  PROCEDURE sp_select_golive_date IS
-  
-  BEGIN
-  
-    sp_data_arc_log('Start of selecting golive date');
-  
-    SELECT add_months(trunc(SYSDATE, 'MM'), -rsh.data_arc_back_in_mnths),
-           rs.company_code,
-           rs.revenue_type
-      INTO g_go_live_date, g_company_code, g_revenue_type
-      FROM ram_revenue_stream rs, ram_revenue_stream_history rsh
-     WHERE rs.plan_name = g_plan_name
-       AND rs.seq_revenue_id = g_seq_revenue_id
-       AND rs.plan_name = rsh.plan_name
-       AND rs.seq_revenue_id = rsh.seq_revenue_id
-       AND add_months(trunc(SYSDATE, 'MM'), -rsh.data_arc_back_in_mnths) >
-           rs.golive_date
-       AND rsh.data_archival_flag = 'Y'
-       AND rsh.data_arc_back_in_mnths IS NOT NULL
-       AND trunc(SYSDATE, 'DD') BETWEEN rsh.effective_date AND
-           nvl(rsh.term_date, c_default_term_date);
-  
-    sp_data_arc_log('End of selecting golive date');
-  
-  EXCEPTION
-    WHEN no_data_found THEN
-      g_go_live_date := NULL;
-    
-  END sp_select_golive_date;
-
-END p_ram_data_archival;
-/
-
-
-
-
+  PERFORM sp_data_arc_log('End of invoice data archival from archive to history table');
+END;
+$$ LANGUAGE plpgsql;
 
