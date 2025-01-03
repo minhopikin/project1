@@ -113,3 +113,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+----Vulnerability----------------------------
+This alert is related to the Ruby environment interacting with our PostgreSQL database.
+
+The Ruby-based application or script interacting with the PostgreSQL server is using an outdated REXML library or Ruby runtime
+
+Upgrade to REXML version 3.3.9 or Ruby 3.2 (or later)
+---------------------------------------
