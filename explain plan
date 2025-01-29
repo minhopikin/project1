@@ -1,29 +1,26 @@
 CREATE OR REPLACE FUNCTION sp_move_pay_dtl_data_to_hist() RETURNS VOID AS $$
 DECLARE
-  v_tbl_rowid varchar[]; -- Replace UUID with the primary key type of ram_payment_detail
+  v_tbl_rowid payment.ram_payment_detail.seq_payment_header_id%TYPE; -- Correctly declare variable type
 BEGIN
-
   FOR v_tbl_rowid IN
-    SELECT seq_payment_header_id -- the primary key of ram_payment_detail as ID
+    SELECT seq_payment_header_id
     FROM payment.ram_payment_detail
-    WHERE payment_date < '2021-01-01' --go_live_date
+    WHERE payment_date < '2021-01-01' -- Go-live date
       AND plan_name = 'UHCNM'
-      AND seq_revenue_id IN
-          (SELECT seq_revenue_id
-             FROM payment.ram_revenue_stream
-            WHERE plan_name = 'UHCNM')
-              --AND seq_revenue_id = g_seq_revenue_id)
+      AND seq_revenue_id IN (
+          SELECT seq_revenue_id
+          FROM payment.ram_revenue_stream
+          WHERE plan_name = 'UHCNM'
+      )
   LOOP
-    -- Move data to the payment detail history table
+    -- Move data to the history table
     INSERT INTO history.ram_payment_detail_history
-    SELECT *
-      FROM payment.ram_payment_detail
-     WHERE id = v_tbl_rowid;
+    SELECT * FROM payment.ram_payment_detail
+    WHERE seq_payment_header_id = v_tbl_rowid;
 
-    -- Delete data from the payment detail table
-    DELETE FROM ram_payment_detail
-     WHERE id = v_tbl_rowid;
+    -- Delete data from the original table
+    DELETE FROM payment.ram_payment_detail
+    WHERE seq_payment_header_id = v_tbl_rowid;
   END LOOP;
-;
 END;
 $$ LANGUAGE plpgsql;
