@@ -1,110 +1,48 @@
-An Azure tenant is a dedicated instance of Azure Active Directory (Azure AD) that an organization receives when it signs up for a Microsoft cloud service, such as Azure. It acts as a central container or directory were user identities, resources, and services are managed. It is the foundational component for managing users and resources within Microsoft’s cloud services, and it serves as the boundary for managing access and identity within the organization's Azure environment.
-Each tenant is identified by a globally unique identifier (a GUID), often referred to as the Tenant ID or
-
-An Azure subscription is a logical container used to provision and manage Azure resources, such as virtual machines, databases, and storage accounts. It's the way you organize and control access to the resources you create in Azure. Here’s an overview of its key aspects:
-Key Features of an Azure Subscription:
-1.	Resource Management:
-o	An Azure subscription allows you to create and manage resources in Azure. Resources are the individual services or components you use, like virtual machines, web apps, or databases.
-o	Each subscription can have its own set of resources, and these resources are grouped into resource groups for easier management.
-2.	Billing and Costs:
-o	The subscription is linked to a billing account, and all costs incurred by the resources within that subscription are aggregated into a single bill.
-o	You can track usage and spending within a subscription, set budgets, and create alerts to manage costs.
-3.	Access Control and Security:
-o	Azure subscriptions are also used to manage access to resources. You can assign users, groups, and service principals specific roles (using Azure Role-Based Access Control - RBAC) within the subscription to control who can do what with the resources.
-o	You can also use policies to enforce governance and compliance requirements within a subscription.
-4.	Quotas and Limits:
-o	Each subscription has certain quotas and limits, such as the maximum number of cores, storage accounts, or virtual networks. These limits can vary based on the subscription type and can sometimes be increased by requesting a limit raise from Azure support.
-5.	Subscription Types:
-o	There are various types of subscriptions, including pay-as-you-go, enterprise agreements, free trials, and others. Each type has different pricing models and benefits.
-6.	Multi-Subscription Scenarios:
-o	Organizations can have multiple subscriptions, often used to separate environments (e.g., development, testing, production) or different departments within a company.
-7.	Subscription ID:
-o	Each subscription has a unique identifier called a Subscription ID, which is used to identify the subscription within Azure.
-
-An Azure Resource Group is a logical container within an Azure subscription that holds related Azure resources. It provides a way to manage and organize resources, such as virtual machines, databases, and storage accounts, that share a common lifecycle or are used for the same application or project.
-Key Features of an Azure Resource Group:
-1.	Resource Organization:
-o	Resource groups allow you to organize and manage related resources as a single entity. For example, all resources associated with a specific application, such as a web app, its database, and storage, can be placed in the same resource group.
-2.	Lifecycle Management:
-o	Resources within a resource group share the same lifecycle. You can deploy, update, and delete all resources in a resource group together. This is useful for managing applications that are built, deployed, and maintained as a unit.
-o	Deleting a resource group will delete all resources contained within it, making it easier to clean up resources when they are no longer needed.
-3.	Access Control:
-o	Role-Based Access Control (RBAC) can be applied at the resource group level, allowing you to manage access to all resources within the group. You can assign permissions to users, groups, or applications for the entire resource group, rather than setting permissions individually for each resource.
-4.	Tagging and Metadata:
-o	You can apply tags to resource groups to organize and track resources based on metadata, such as department, environment (e.g., production, development), or cost center. Tags help in reporting and managing costs across different resource groups.
-5.	Location Considerations:
-o	While resources within a resource group can be located in different regions, the resource group itself has a specific location (region). This location is used for metadata purposes and to determine where certain operations (like deploying resources) can occur.
-6.	Template Deployment:
-o	Resource groups are commonly used with Azure Resource Manager (ARM) templates, which allow you to define the infrastructure and dependencies of your application as code. You can deploy, update, or delete all the resources defined in an ARM template in a single operation within a resource group.
-7.	Independent Management:
-o	Resources within a resource group can be managed independently of one another. For instance, you can add, update, or delete individual resources without affecting other resources in the same group.
-
-Azure resources are the fundamental building blocks that make up your cloud infrastructure in Microsoft Azure. These are individual services or components that you can create, manage, and use to build your applications and services in the Azure cloud. Azure offers a wide variety of resources, each designed to serve specific needs, such as computing, storage, networking, databases, AI, and more.
-Common Types of Azure Resources:
-1.	Compute Resources:
-o	Virtual Machines (VMs): Scalable computing power that you can configure with your choice of operating systems and software.
-o	Azure App Service: Platform-as-a-Service (PaaS) for hosting web apps, RESTful APIs, and mobile backends.
-o	Azure Kubernetes Service (AKS): Managed container orchestration service for running and managing Kubernetes clusters.
-o	Azure Functions: Serverless computing service that lets you run small pieces of code in response to events without managing infrastructure.
-2.	Storage Resources:
-o	Azure Blob Storage: Object storage solution for unstructured data, such as images, videos, and backups.
-o	Azure Disk Storage: Persistent storage for Azure VMs, available in different performance tiers.
-o	Azure File Storage: Managed file shares that can be accessed via SMB protocol.
-o	Azure Data Lake Storage: Optimized storage for big data analytics workloads.
-3.	Networking Resources:
-o	Virtual Networks (VNet): Isolated network environments for securely connecting Azure resources.
-o	Load Balancers: Distribute incoming network traffic across multiple Azure resources.
-o	Azure VPN Gateway: Establishes secure connections between Azure and on-premises networks.
-o	Azure Firewall: Managed, cloud-based network security service that protects your Azure Virtual Network resources.
-4.	Database Resources:
-o	Azure SQL Database: Managed relational database service for SQL Server.
-o	Azure Cosmos DB: Globally distributed, multi-model database service for building highly responsive and scalable applications.
-o	Azure Database for MySQL/PostgreSQL: Fully managed, scalable MySQL and PostgreSQL databases.
-o	Azure Synapse Analytics: Integrated analytics service for big data and data warehousing.
-5.	AI and Machine Learning Resources:
-o	Azure Machine Learning: End-to-end machine learning service for building, training, and deploying models.
-o	Azure Cognitive Services: Pre-built AI models that can be used for vision, speech, language, and decision-making tasks.
-o	Azure Bot Service: Platform for building, testing, and deploying intelligent bots.
-6.	Identity and Access Management:
-o	Azure Active Directory (AAD): Cloud-based identity and access management service that provides single sign-on, multifactor authentication, and conditional access to protect resources.
-o	Azure Key Vault: Securely store and manage keys, secrets, and certificates used by cloud applications and services.
-7.	Management and Governance:
-o	Azure Monitor: Full-stack monitoring service for collecting, analyzing, and acting on telemetry data from your Azure and on-premises environments.
-o	Azure Policy: Service to create, assign, and manage policies that enforce rules and effects over your resources.
-o	Azure Blueprints: A service that helps you define a repeatable set of Azure resources and policies that implement and adhere to an organization's standards, patterns, and requirements.
-How Azure Resources Work:
-•	Deployment: Resources are deployed in a subscription and organized into resource groups. Each resource can be deployed individually or as part of a group using templates like ARM (Azure Resource Manager) templates.
--	Resources can be deployed using Terraform, Azure CLI or Azure Portal
-•	Configuration: Resources are configured based on the specific needs of your application or service. For example, you can configure the size and performance characteristics of a VM or the replication settings of a storage account.
-•	Scaling: Most Azure resources support scaling options, allowing you to increase or decrease capacity based on demand. For example, you can scale up or down a VM, or increase the throughput of a Cosmos DB instance.
-•	Billing: Azure resources are billed based on their usage, and costs are tracked at the resource level within a subscription.
-In summary, Azure resources are the essential components you use to build, deploy, and manage applications and services in the cloud. They range from compute and storage to networking, databases, and AI, providing a comprehensive platform for virtually any type of cloud-based workload.
-
-HA SOLUTION
-Azure Database for PostgreSQL offers robust, built-in high availability features designed to ensure that your databases are resilient to failures, whether they occur at the infrastructure level or within a specific zone or region.:
-1. High Availability Architecture:
-•	Flexible Server Deployment:
-o	The Flexible Server deployment option provides a more customizable HA configuration. It allows for a choice between Zone-Redundant HA and Same-Zone HA.
-	Zone-Redundant HA: Deploys the primary and standby replicas across different availability zones within the same region. This setup provides resilience against zone-level failures, such as power outages or network disruptions in one zone.
-	Same-Zone HA: Deploys both replicas within the same availability zone, offering protection against failures at the infrastructure level (e.g., server failures) within that zone.
-2. Automated Backups and Point-in-Time Restore:
-•	Azure Database for PostgreSQL automatically performs daily backups of your databases. These backups are stored in geo-redundant storage by default, ensuring they are available even in the event of a regional disaster.
-•	The service supports point-in-time restore (PITR), allowing you to restore your database to any point within the retention period (up to 35 days). This feature is crucial for recovering from accidental data loss or corruption.
-3. Maintenance and Updates:
-•	Azure handles all routine maintenance tasks, such as applying security patches and updates to the underlying infrastructure, without causing downtime. This proactive maintenance ensures that the PostgreSQL service remains secure and up-to-date.
-4. Automatic Failover Mechanism:
-•	In the event of a failure, Azure's HA mechanism automatically triggers a failover to the standby replica. The failover is seamless, requiring no manual intervention, and the new primary server takes over with minimal impact on your application.
-5. Disaster Recovery:
-•	For additional resilience, especially in critical applications, you can set up geo-redundant backups or use Azure Site Recovery to replicate the entire PostgreSQL server to another region. This setup ensures that you can recover your databases even in the event of a complete regional outage.
-6. Monitoring and Alerts:
-•	Azure provides built-in monitoring tools like Azure Monitor and Azure Database for PostgreSQL metrics to keep track of the health and performance of your PostgreSQL instances. You can set up alerts to notify you of any issues, such as high CPU usage, storage limits, or potential failures.
-Summary of High Availability Options in Azure Database for PostgreSQL:
-•	Single Server: Basic HA with automated failover within the same region.
-•	Flexible Server: More advanced HA with options for zone-redundant or same-zone failover.
-•	Automated Backups: Daily backups with point-in-time restore capabilities.
-•	Failover: Automatic failover to a standby replica in case of failures.
-•	Disaster Recovery: Geo-redundant backups and replication for regional resilience.
-
-
-
-
+INSERT INTO PAYMENT.ram_temp_humana_combined(
+				 memberid, Cap_Period, CAP_PROC_MONTH, MBR_CAP_Start_Date, MBR_CAP_End_Date, CUR_MBRMO, RETRO_ADD
+				, RETRO_TRM, Entity, HealthPlan, PRODUCT, MCO_CTRCT, PBP, Provider_Id
+				, PROV_NM, MM, PRTC_Fund_RTE, PRTA_FUND_RTE, PRTA_fund_TAX, PRTB_Fund_RTE, PRTD_FUND_RTE
+				, RSRV_FUND_RTE, EXCL_FUND_RTE, Total_FP, mbr_nm, mbr_sex, ret_reason, CTRCT_PRTA
+				, mbr_age, MBR_ID, cur_cap_sw, ret_cap_sw, CMS_PRTA, CMS_PRTB, CMS_PRTD, REINSURANCE_SUBSIDY_AMOUNT
+				, CAP_CTRCT, GROUPER, PGM_SOURCE, MBR_CUS_ID, CTRCT_PRTB, CTRCT_PRTD, STATUS, RUN_DATE, PROD_LOB, PRTA_PCT, PRTB_PCT,PLAN_NAME , seq_payment_header_id,
+				 SEQ_HUMANA_ID, PREM_LIS, UHG_CDO_ID, UHG_REGION_ID)
+				 	
+				 SELECT
+				DISTINCT
+				 a.memberid, a.Cap_Period, a.CAP_PROC_MONTH, a.MBR_CAP_Start_Date, a.MBR_CAP_End_Date, a.CUR_MBRMO, a.RETRO_ADD
+				, a.RETRO_TRM, 'OCN' AS Entity, 'Humana' AS HealthPlan, a.PRODUCT, a.MCO_CTRCT, a.PBP, a.Provider_Id
+				, a.PROV_NM
+				, Case When a.CUR_MBRMO > 0 Then 1 When a.RETRO_ADD > 0 Then 1 When a.RETRO_TRM < 0 Then -1 Else 0 END AS MM
+				, a.PRTA_FUND_RTE  b.PRTB_Fund_RTE AS PRTC_Fund_RTE
+				, a.PRTA_FUND_RTE, a.PRTA_fund_TAX, b.PRTB_Fund_RTE, d.PRTD_FUND_RTE
+				,r.RSRV_FUND_RTE
+				,e.EXCL_FUND_RTE
+				,a.PRTA_FUND_RTE  b.PRTB_Fund_RTE  d.PRTD_FUND_RTE  r.RSRV_FUND_RTE  e.EXCL_FUND_RTE AS Total_FP
+				,
+				  a.mbr_nm, a.mbr_sex, a.ret_reason, a.CTRCT_PRTA
+				, a.mbr_age, a.MBR_ID, a.cur_cap_sw, a.ret_cap_sw, a.CMS_PRTA, b.CMS_PRTB, d.CMS_PRTD, d.REINSURANCE_SUBSIDY_AMOUNT
+				, a.CAP_CTRCT, a.GROUPER, a.PGM_SOURCE, a.MBR_CUS_ID, b.CTRCT_PRTB, d.CTRCT_PRTD, a.STATUS, a.RUN_DATE, a.PROD_LOB, a.PRTA_PCT, b.PRTB_PCT,a.plan_name
+				 ,a.seq_payment_header_id,nextval('SEQ_HUMANA_ID'), a.PREM_LIS, a.UHG_CDO_ID, a.UHG_REGION_ID FROM PAYMENT.ram_temp_humana_prta a
+				
+				 LEFT JOIN PAYMENT.ram_temp_humana_prtb b
+					ON
+				 a.seq_payment_header_id = b.seq_payment_header_id and a.memberid = b.memberid AND a.Cap_Period = b.Cap_Period AND a.CAP_PROC_MONTH = b.CAP_PROC_MONTH
+				 AND a.MCO_CTRCT = b.MCO_CTRCT AND a.PBP = b.PBP	AND a.Provider_Id = b.Provider_Id AND a.PGM_SOURCE = b.PGM_SOURCE
+				
+				 LEFT JOIN PAYMENT.ram_temp_humana_prtd d
+					ON
+				 a.seq_payment_header_id = d.seq_payment_header_id and a.memberid = d.memberid AND a.Cap_Period = d.Cap_Period AND a.CAP_PROC_MONTH = d.CAP_PROC_MONTH
+					AND a.MCO_CTRCT = d.MCO_CTRCT AND a.PBP = d.PBP	AND a.Provider_Id = d.Provider_Id AND a.PGM_SOURCE = d.PGM_SOURCE
+				
+				 LEFT JOIN PAYMENT.ram_temp_humana_rsrv r
+					ON
+				 a.seq_payment_header_id = r.seq_payment_header_id and a.memberid = r.memberid AND a.Cap_Period = r.Cap_Period AND a.CAP_PROC_MONTH = r.CAP_PROC_MONTH
+					AND a.MCO_CTRCT = r.MCO_CTRCT AND a.PBP = r.PBP	AND a.Provider_Id = r.Provider_Id AND a.PGM_SOURCE = r.PGM_SOURCE
+				
+				 LEFT JOIN PAYMENT.ram_temp_humana_excl e
+					ON
+				 a.seq_payment_header_id = e.seq_payment_header_id and a.memberid = e.memberid AND a.Cap_Period = e.Cap_Period AND a.CAP_PROC_MONTH = e.CAP_PROC_MONTH
+					AND a.MCO_CTRCT = e.MCO_CTRCT AND a.PBP = e.PBP	AND a.Provider_Id = e.Provider_Id AND a.PGM_SOURCE = e.PGM_SOURCE
+				 where
+				 a.seq_payment_header_id in (?)  
+ 
