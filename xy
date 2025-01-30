@@ -124,3 +124,10 @@ If some of the joins are optional or have redundant data, consider:
 Merging tables at ETL level.
 Pre-aggregating data in separate temp tables.
 ------------------------------------------------------
+ Why Does BuffileRead Happen?
+Sorting Large Datasets – When sorting exceeds work_mem, PostgreSQL uses disk.
+Hash Joins or Aggregations – If the hash table is too large for memory, it spills to disk.
+Lack of Indexes – Causes PostgreSQL to perform slow sequential scans.
+Large Result Sets – Queries returning millions of rows might exceed memory limits.
+Insufficient work_mem Setting – If work_mem is too low, PostgreSQL cannot process large operations in memory.
+--------------------------------------------------------------
