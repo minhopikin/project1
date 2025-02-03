@@ -1,24 +1,41 @@
-SELECT
-    tc.table_schema,
-    tc.table_name,
-    kcu.column_name AS foreign_key_column,
-    ccu.table_schema AS referenced_table_schema,
-    ccu.table_name AS referenced_table_name,
-    ccu.column_name AS referenced_column_name
-FROM
-    information_schema.table_constraints AS tc
-JOIN
-    information_schema.key_column_usage AS kcu
-    ON tc.constraint_name = kcu.constraint_name
-JOIN
-    information_schema.constraint_column_usage AS ccu
-    ON ccu.constraint_name = tc.constraint_name
-WHERE
-    constraint_type = 'FOREIGN KEY';
------------------------------------------------
-ALTER TABLE table_name
-DISABLE CONSTRAINT constraint_name;
---------------------
-ALTER TABLE orders
-DISABLE CONSTRAINT fk_user_id;
---------------------
+EXPLAIN INSERT INTO PAYMENT.ram_temp_humana_combined(
+				 memberid, Cap_Period, CAP_PROC_MONTH, MBR_CAP_Start_Date, MBR_CAP_End_Date, CUR_MBRMO, RETRO_ADD
+				, RETRO_TRM, Entity, HealthPlan, PRODUCT, MCO_CTRCT, PBP, Provider_Id
+				, PROV_NM, MM, PRTC_Fund_RTE, PRTA_FUND_RTE, PRTA_fund_TAX, PRTB_Fund_RTE, PRTD_FUND_RTE
+				, RSRV_FUND_RTE, EXCL_FUND_RTE, Total_FP, mbr_nm, mbr_sex, ret_reason, CTRCT_PRTA
+				, mbr_age, MBR_ID, cur_cap_sw, ret_cap_sw, CMS_PRTA, CMS_PRTB, CMS_PRTD, REINSURANCE_SUBSIDY_AMOUNT
+				, CAP_CTRCT, GROUPER, PGM_SOURCE, MBR_CUS_ID, CTRCT_PRTB, CTRCT_PRTD, STATUS, RUN_DATE, PROD_LOB, PRTA_PCT, PRTB_PCT,PLAN_NAME , seq_payment_header_id,
+				 SEQ_HUMANA_ID, PREM_LIS, UHG_CDO_ID, UHG_REGION_ID)
+				 SELECT
+				DISTINCT
+				 a.memberid, a.Cap_Period, a.CAP_PROC_MONTH, a.MBR_CAP_Start_Date, a.MBR_CAP_End_Date, a.CUR_MBRMO, a.RETRO_ADD
+				, a.RETRO_TRM, 'OCN' AS Entity, 'Humana' AS HealthPlan, a.PRODUCT, a.MCO_CTRCT, a.PBP, a.Provider_Id
+				, a.PROV_NM
+				, Case When a.CUR_MBRMO > 0 Then 1 When a.RETRO_ADD > 0 Then 1 When a.RETRO_TRM < 0 Then -1 Else 0 END AS MM
+				, a.PRTA_FUND_RTE + b.PRTB_Fund_RTE AS PRTC_Fund_RTE
+				, a.PRTA_FUND_RTE, a.PRTA_fund_TAX, b.PRTB_Fund_RTE, d.PRTD_FUND_RTE
+				,r.RSRV_FUND_RTE
+				,e.EXCL_FUND_RTE
+				,a.PRTA_FUND_RTE + b.PRTB_Fund_RTE + d.PRTD_FUND_RTE + r.RSRV_FUND_RTE + e.EXCL_FUND_RTE AS Total_FP,
+				  a.mbr_nm, a.mbr_sex, a.ret_reason, a.CTRCT_PRTA
+				, a.mbr_age, a.MBR_ID, a.cur_cap_sw, a.ret_cap_sw, a.CMS_PRTA, b.CMS_PRTB, d.CMS_PRTD, d.REINSURANCE_SUBSIDY_AMOUNT
+				, a.CAP_CTRCT, a.GROUPER, a.PGM_SOURCE, a.MBR_CUS_ID, b.CTRCT_PRTB, d.CTRCT_PRTD, a.STATUS, a.RUN_DATE, a.PROD_LOB, a.PRTA_PCT, b.PRTB_PCT,a.plan_name
+				 ,a.seq_payment_header_id,nextval('562914291'), a.PREM_LIS, a.UHG_CDO_ID, a.UHG_REGION_ID FROM PAYMENT.ram_temp_humana_prta a
+				 LEFT JOIN PAYMENT.ram_temp_humana_prtb b
+					ON
+				 a.seq_payment_header_id = b.seq_payment_header_id and a.memberid = b.memberid AND a.Cap_Period = b.Cap_Period AND a.CAP_PROC_MONTH = b.CAP_PROC_MONTH
+				 AND a.MCO_CTRCT = b.MCO_CTRCT AND a.PBP = b.PBP	AND a.Provider_Id = b.Provider_Id AND a.PGM_SOURCE = b.PGM_SOURCE
+				 LEFT JOIN PAYMENT.ram_temp_humana_prtd d
+					ON
+				 a.seq_payment_header_id = d.seq_payment_header_id and a.memberid = d.memberid AND a.Cap_Period = d.Cap_Period AND a.CAP_PROC_MONTH = d.CAP_PROC_MONTH
+					AND a.MCO_CTRCT = d.MCO_CTRCT AND a.PBP = d.PBP	AND a.Provider_Id = d.Provider_Id AND a.PGM_SOURCE = d.PGM_SOURCE	
+				 LEFT JOIN PAYMENT.ram_temp_humana_rsrv r
+					ON
+				 a.seq_payment_header_id = r.seq_payment_header_id and a.memberid = r.memberid AND a.Cap_Period = r.Cap_Period AND a.CAP_PROC_MONTH = r.CAP_PROC_MONTH
+					AND a.MCO_CTRCT = r.MCO_CTRCT AND a.PBP = r.PBP	AND a.Provider_Id = r.Provider_Id AND a.PGM_SOURCE = r.PGM_SOURCE
+				 LEFT JOIN PAYMENT.ram_temp_humana_excl e
+					ON
+				 a.seq_payment_header_id = e.seq_payment_header_id and a.memberid = e.memberid AND a.Cap_Period = e.Cap_Period AND a.CAP_PROC_MONTH = e.CAP_PROC_MONTH
+					AND a.MCO_CTRCT = e.MCO_CTRCT AND a.PBP = e.PBP	AND a.Provider_Id = e.Provider_Id AND a.PGM_SOURCE = e.PGM_SOURCE
+				 where
+				 a.seq_payment_header_id ='152569';
