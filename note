@@ -1,125 +1,32 @@
-"Insert on ram_temp_humana_combined  (cost=240.18..243.58 rows=0 width=0)"
-"  ->  Subquery Scan on ""*SELECT*""  (cost=240.18..243.58 rows=8 width=563)"
-"        ->  Unique  (cost=240.18..243.34 rows=8 width=499)"
-"              ->  Incremental Sort  (cost=240.18..242.34 rows=8 width=499)"
-"                    Sort Key: a.memberid, a.cap_period, a.cap_proc_month, a.mbr_cap_start_date, a.mbr_cap_end_date, a.cur_mbrmo, a.retro_add, a.retro_trm, a.product, a.mco_ctrct, a.pbp, a.provider_id, a.prov_nm, (CASE WHEN (a.cur_mbrmo > 0) THEN 1 WHEN (a.retro_add > 0) THEN 1 WHEN (a.retro_trm < 0) THEN '-1'::integer ELSE 0 END), ((a.prta_fund_rte + b.prtb_fund_rte)), a.prta_fund_rte, a.prta_fund_tax, b.prtb_fund_rte, d.prtd_fund_rte, r.rsrv_fund_rte, e.excl_fund_rte, (((((a.prta_fund_rte + b.prtb_fund_rte) + d.prtd_fund_rte) + r.rsrv_fund_rte) + e.excl_fund_rte)), a.mbr_nm, a.mbr_sex, a.ret_reason, a.ctrct_prta, a.mbr_age, a.mbr_id, a.cur_cap_sw, a.ret_cap_sw, a.cms_prta, b.cms_prtb, d.cms_prtd, d.reinsurance_subsidy_amount, a.cap_ctrct, a.grouper, a.pgm_source, a.mbr_cus_id, b.ctrct_prtb, d.ctrct_prtd, a.status, a.run_date, a.prod_lob, a.prta_pct, b.prtb_pct, a.plan_name, (nextval('562914291'::regclass)), a.prem_lis, a.uhg_cdo_id, a.uhg_region_id"
-"                    Presorted Key: a.memberid, a.cap_period, a.cap_proc_month"
-"                    ->  Merge Left Join  (cost=239.98..241.50 rows=8 width=499)"
-"                          Merge Cond: (((a.memberid)::text = (e.memberid)::text) AND (a.cap_period = e.cap_period) AND (a.cap_proc_month = e.cap_proc_month) AND ((a.mco_ctrct)::text = (e.mco_ctrct)::text) AND ((a.pbp)::text = (e.pbp)::text) AND ((a.provider_id)::text = (e.provider_id)::text) AND ((a.pgm_source)::text = (e.pgm_source)::text))"
-"                          ->  Merge Left Join  (cost=187.94..188.95 rows=8 width=356)"
-"                                Merge Cond: (((a.memberid)::text = (r.memberid)::text) AND (a.cap_period = r.cap_period) AND (a.cap_proc_month = r.cap_proc_month) AND ((a.mco_ctrct)::text = (r.mco_ctrct)::text) AND ((a.pbp)::text = (r.pbp)::text) AND ((a.provider_id)::text = (r.provider_id)::text) AND ((a.pgm_source)::text = (r.pgm_source)::text))"
-"                                ->  Merge Left Join  (cost=153.88..154.56 rows=8 width=349)"
-"                                      Merge Cond: (((a.memberid)::text = (d.memberid)::text) AND (a.cap_period = d.cap_period) AND (a.cap_proc_month = d.cap_proc_month) AND ((a.mco_ctrct)::text = (d.mco_ctrct)::text) AND ((a.pbp)::text = (d.pbp)::text) AND ((a.provider_id)::text = (d.provider_id)::text) AND ((a.pgm_source)::text = (d.pgm_source)::text))"
-"                                      ->  Merge Left Join  (cost=101.84..102.19 rows=8 width=328)"
-"                                            Merge Cond: (((a.memberid)::text = (b.memberid)::text) AND (a.cap_period = b.cap_period) AND (a.cap_proc_month = b.cap_proc_month) AND ((a.mco_ctrct)::text = (b.mco_ctrct)::text) AND ((a.pbp)::text = (b.pbp)::text) AND ((a.provider_id)::text = (b.provider_id)::text) AND ((a.pgm_source)::text = (b.pgm_source)::text))"
-"                                            ->  Sort  (cost=49.79..49.81 rows=8 width=309)"
-"                                                  Sort Key: a.memberid, a.cap_period, a.cap_proc_month, a.mco_ctrct, a.pbp, a.provider_id, a.pgm_source"
-"                                                  ->  Append  (cost=0.12..49.67 rows=8 width=309)"
-"                                                        ->  Index Scan using ram_temp_humana_prta_humaz_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prta_humaz a_1  (cost=0.12..5.91 rows=1 width=308)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Index Scan using ram_temp_humana_prta_humcs_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prta_humcs a_2  (cost=0.12..5.91 rows=1 width=308)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Index Scan using ram_temp_humana_prta_humnm_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prta_humnm a_3  (cost=0.12..5.91 rows=1 width=309)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Index Scan using ram_temp_humana_prta_humnv_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prta_humnv a_4  (cost=0.12..5.91 rows=1 width=308)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Index Scan using ram_temp_humana_prta_humnw_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prta_humnw a_5  (cost=0.12..5.91 rows=1 width=309)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Index Scan using ram_temp_humana_prta_humny_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prta_humny a_6  (cost=0.12..5.91 rows=1 width=311)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Index Scan using ram_temp_humana_prta_humoh_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prta_humoh a_7  (cost=0.12..5.91 rows=1 width=309)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Bitmap Heap Scan on ram_temp_humana_prta_humwa a_8  (cost=4.13..8.17 rows=1 width=308)"
-"                                                              Recheck Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                              ->  Bitmap Index Scan on ram_temp_humana_prta_humwa_seq_payment_header_id_plan_name_idx  (cost=0.00..4.13 rows=1 width=0)"
-"                                                                    Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                            ->  Sort  (cost=52.05..52.07 rows=8 width=69)"
-"                                                  Sort Key: b.memberid, b.cap_period, b.cap_proc_month, b.mco_ctrct, b.pbp, b.provider_id, b.pgm_source"
-"                                                  ->  Append  (cost=0.12..51.93 rows=8 width=69)"
-"                                                        ->  Index Scan using ram_temp_humana_prtb_humaz_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prtb_humaz b_1  (cost=0.12..5.91 rows=1 width=69)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Index Scan using ram_temp_humana_prtb_humcs_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prtb_humcs b_2  (cost=0.12..5.91 rows=1 width=69)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Index Scan using ram_temp_humana_prtb_humnm_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prtb_humnm b_3  (cost=0.12..5.91 rows=1 width=69)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Index Scan using ram_temp_humana_prtb_humnv_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prtb_humnv b_4  (cost=0.12..5.91 rows=1 width=69)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Index Scan using ram_temp_humana_prtb_humnw_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prtb_humnw b_5  (cost=0.12..5.91 rows=1 width=72)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Bitmap Heap Scan on ram_temp_humana_prtb_humny b_6  (cost=4.13..8.17 rows=1 width=66)"
-"                                                              Recheck Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                              ->  Bitmap Index Scan on ram_temp_humana_prtb_humny_seq_payment_header_id_memberid_c_idx  (cost=0.00..4.13 rows=1 width=0)"
-"                                                                    Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Index Scan using ram_temp_humana_prtb_humoh_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prtb_humoh b_7  (cost=0.12..5.91 rows=1 width=70)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Bitmap Heap Scan on ram_temp_humana_prtb_humwa b_8  (cost=4.13..8.17 rows=1 width=70)"
-"                                                              Recheck Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                              ->  Bitmap Index Scan on ram_temp_humana_prtb_humwa_seq_payment_header_id_plan_name_idx  (cost=0.00..4.13 rows=1 width=0)"
-"                                                                    Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                      ->  Sort  (cost=52.05..52.07 rows=8 width=70)"
-"                                            Sort Key: d.memberid, d.cap_period, d.cap_proc_month, d.mco_ctrct, d.pbp, d.provider_id, d.pgm_source"
-"                                            ->  Append  (cost=0.12..51.93 rows=8 width=70)"
-"                                                  ->  Index Scan using ram_temp_humana_prtd_humaz_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prtd_humaz d_1  (cost=0.12..5.91 rows=1 width=71)"
-"                                                        Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                  ->  Index Scan using ram_temp_humana_prtd_humcs_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prtd_humcs d_2  (cost=0.12..5.91 rows=1 width=71)"
-"                                                        Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                  ->  Index Scan using ram_temp_humana_prtd_humnm_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prtd_humnm d_3  (cost=0.12..5.91 rows=1 width=71)"
-"                                                        Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                  ->  Index Scan using ram_temp_humana_prtd_humnv_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prtd_humnv d_4  (cost=0.12..5.91 rows=1 width=71)"
-"                                                        Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                  ->  Index Scan using ram_temp_humana_prtd_humnw_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prtd_humnw d_5  (cost=0.12..5.91 rows=1 width=74)"
-"                                                        Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                  ->  Bitmap Heap Scan on ram_temp_humana_prtd_humny d_6  (cost=4.13..8.17 rows=1 width=63)"
-"                                                        Recheck Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Bitmap Index Scan on ram_temp_humana_prtd_humny_seq_payment_header_id_memberid_c_idx  (cost=0.00..4.13 rows=1 width=0)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                  ->  Index Scan using ram_temp_humana_prtd_humoh_seq_payment_header_id_memberid_c_idx on ram_temp_humana_prtd_humoh d_7  (cost=0.12..5.91 rows=1 width=70)"
-"                                                        Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                  ->  Bitmap Heap Scan on ram_temp_humana_prtd_humwa d_8  (cost=4.13..8.17 rows=1 width=70)"
-"                                                        Recheck Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                        ->  Bitmap Index Scan on ram_temp_humana_prtd_humwa_seq_payment_header_id_plan_name_idx  (cost=0.00..4.13 rows=1 width=0)"
-"                                                              Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                ->  Sort  (cost=34.06..34.08 rows=8 width=468)"
-"                                      Sort Key: r.memberid, r.cap_period, r.cap_proc_month, r.mco_ctrct, r.pbp, r.provider_id, r.pgm_source"
-"                                      ->  Append  (cost=0.00..33.94 rows=8 width=468)"
-"                                            ->  Seq Scan on ram_temp_humana_rsrv_humaz r_1  (cost=0.00..1.00 rows=1 width=1162)"
-"                                                  Filter: (seq_payment_header_id = '152569'::bigint)"
-"                                            ->  Index Scan using ram_temp_humana_rsrv_humcs_seq_payment_header_id_memberid_c_idx on ram_temp_humana_rsrv_humcs r_2  (cost=0.12..5.91 rows=1 width=53)"
-"                                                  Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                            ->  Seq Scan on ram_temp_humana_rsrv_humnm r_3  (cost=0.00..1.00 rows=1 width=1162)"
-"                                                  Filter: (seq_payment_header_id = '152569'::bigint)"
-"                                            ->  Seq Scan on ram_temp_humana_rsrv_humnv r_4  (cost=0.00..0.00 rows=1 width=1162)"
-"                                                  Filter: (seq_payment_header_id = '152569'::bigint)"
-"                                            ->  Index Scan using ram_temp_humana_rsrv_humnw_seq_payment_header_id_memberid_c_idx on ram_temp_humana_rsrv_humnw r_5  (cost=0.12..5.91 rows=1 width=54)"
-"                                                  Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                            ->  Index Scan using ram_temp_humana_rsrv_humny_seq_payment_header_id_memberid_c_idx on ram_temp_humana_rsrv_humny r_6  (cost=0.12..5.91 rows=1 width=52)"
-"                                                  Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                            ->  Index Scan using ram_temp_humana_rsrv_humoh_seq_payment_header_id_memberid_c_idx on ram_temp_humana_rsrv_humoh r_7  (cost=0.12..5.91 rows=1 width=50)"
-"                                                  Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                            ->  Bitmap Heap Scan on ram_temp_humana_rsrv_humwa r_8  (cost=4.13..8.17 rows=1 width=52)"
-"                                                  Recheck Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                                  ->  Bitmap Index Scan on ram_temp_humana_rsrv_humwa_seq_payment_header_id_plan_name_idx  (cost=0.00..4.13 rows=1 width=0)"
-"                                                        Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                          ->  Sort  (cost=52.05..52.07 rows=8 width=52)"
-"                                Sort Key: e.memberid, e.cap_period, e.cap_proc_month, e.mco_ctrct, e.pbp, e.provider_id, e.pgm_source"
-"                                ->  Append  (cost=0.12..51.93 rows=8 width=52)"
-"                                      ->  Index Scan using ram_temp_humana_excl_humaz_seq_payment_header_id_memberid_c_idx on ram_temp_humana_excl_humaz e_1  (cost=0.12..5.91 rows=1 width=53)"
-"                                            Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                      ->  Index Scan using ram_temp_humana_excl_humcs_seq_payment_header_id_memberid_c_idx on ram_temp_humana_excl_humcs e_2  (cost=0.12..5.91 rows=1 width=53)"
-"                                            Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                      ->  Index Scan using ram_temp_humana_excl_humnm_seq_payment_header_id_memberid_c_idx on ram_temp_humana_excl_humnm e_3  (cost=0.12..5.91 rows=1 width=53)"
-"                                            Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                      ->  Index Scan using ram_temp_humana_excl_humnv_seq_payment_header_id_memberid_c_idx on ram_temp_humana_excl_humnv e_4  (cost=0.12..5.91 rows=1 width=53)"
-"                                            Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                      ->  Index Scan using ram_temp_humana_excl_humnw_seq_payment_header_id_memberid_c_idx on ram_temp_humana_excl_humnw e_5  (cost=0.12..5.91 rows=1 width=53)"
-"                                            Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                      ->  Bitmap Heap Scan on ram_temp_humana_excl_humny e_6  (cost=4.13..8.17 rows=1 width=52)"
-"                                            Recheck Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                            ->  Bitmap Index Scan on ram_temp_humana_excl_humny_seq_payment_header_id_memberid_c_idx  (cost=0.00..4.13 rows=1 width=0)"
-"                                                  Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                      ->  Index Scan using ram_temp_humana_excl_humoh_seq_payment_header_id_memberid_c_idx on ram_temp_humana_excl_humoh e_7  (cost=0.12..5.91 rows=1 width=51)"
-"                                            Index Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                      ->  Bitmap Heap Scan on ram_temp_humana_excl_humwa e_8  (cost=4.13..8.17 rows=1 width=52)"
-"                                            Recheck Cond: (seq_payment_header_id = '152569'::bigint)"
-"                                            ->  Bitmap Index Scan on ram_temp_humana_excl_humwa_seq_payment_header_id_plan_name_idx  (cost=0.00..4.13 rows=1 width=0)"
-"                                                  Index Cond: (seq_payment_header_id = '152569'::bigint)"
+1. Optimize Index Usage
+Since the query performs LEFT JOINs on multiple columns, multi-column (composite) indexes can help:
+
+CREATE INDEX idx_prtb_composite 
+ON PAYMENT.ram_temp_humana_prtb (seq_payment_header_id, memberid, Cap_Period, CAP_PROC_MONTH, MCO_CTRCT, PBP, Provider_Id, PGM_SOURCE);
+
+CREATE INDEX idx_prtd_composite 
+ON PAYMENT.ram_temp_humana_prtd (seq_payment_header_id, memberid, Cap_Period, CAP_PROC_MONTH, MCO_CTRCT, PBP, Provider_Id, PGM_SOURCE);
+
+CREATE INDEX idx_rsrv_composite 
+ON PAYMENT.ram_temp_humana_rsrv (seq_payment_header_id, memberid, Cap_Period, CAP_PROC_MONTH, MCO_CTRCT, PBP, Provider_Id, PGM_SOURCE);
+
+CREATE INDEX idx_excl_composite 
+ON PAYMENT.ram_temp_humana_excl (seq_payment_header_id, memberid, Cap_Period, CAP_PROC_MONTH, MCO_CTRCT, PBP, Provider_Id, PGM_SOURCE);
+
+--------------------------------------------------
+2. Push Down Filtering to Joined Tables
+Instead of filtering only in WHERE, apply it in JOIN conditions:
+
+LEFT JOIN PAYMENT.ram_temp_humana_prtb b
+  ON a.seq_payment_header_id = b.seq_payment_header_id
+  AND b.seq_payment_header_id = '152569'
+---------------------
+Index Scans Are Used:
+
+PostgreSQL is correctly using indexes on seq_payment_header_id for all participating tables.
+However, there are multiple Index Scans and Bitmap Heap Scans, which might indicate an inefficient join order.
+Merge Joins Are Used for Joining Tables:
+
+Merge Left Join is used at multiple levels.
+Sorting is required before merging (Sort Key), which can be expensive if datasets are large.
+This suggests that while indexes are present, join performance could be improved.
