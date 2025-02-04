@@ -30,3 +30,192 @@ Merge Joins Are Used for Joining Tables:
 Merge Left Join is used at multiple levels.
 Sorting is required before merging (Sort Key), which can be expensive if datasets are large.
 This suggests that while indexes are present, join performance could be improved.
+--------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE insert_humana_data_in_batches(
+    IN seq_payment_header_ids INT[],  -- Accepts an array of IDs
+    IN batch_size INT DEFAULT 10000   -- Defines batch size
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    rec RECORD;
+    batch_cursor CURSOR FOR
+        SELECT DISTINCT 
+            a.memberid, a.Cap_Period, a.CAP_PROC_MONTH, a.MBR_CAP_Start_Date, a.MBR_CAP_End_Date, a.CUR_MBRMO, a.RETRO_ADD,
+            a.RETRO_TRM, 'OCN' AS Entity, 'Humana' AS HealthPlan, a.PRODUCT, a.MCO_CTRCT, a.PBP, a.Provider_Id,
+            a.PROV_NM,
+            CASE 
+                WHEN a.CUR_MBRMO > 0 THEN 1 
+                WHEN a.RETRO_ADD > 0 THEN 1 
+                WHEN a.RETRO_TRM < 0 THEN -1 
+                ELSE 0 
+            END AS MM,
+            a.PRTA_FUND_RTE + COALESCE(b.PRTB_Fund_RTE, 0) AS PRTC_Fund_RTE,
+            a.PRTA_FUND_RTE, a.PRTA_fund_TAX, b.PRTB_Fund_RTE, d.PRTD_FUND_RTE,
+            r.RSRV_FUND_RTE, e.EXCL_FUND_RTE,
+            a.PRTA_FUND_RTE + COALESCE(b.PRTB_Fund_RTE, 0) + COALESCE(d.PRTD_FUND_RTE, 0) + 
+            COALESCE(r.RSRV_FUND_RTE, 0) + COALESCE(e.EXCL_FUND_RTE, 0) AS Total_FP,
+            a.mbr_nm, a.mbr_sex, a.ret_reason, a.CTRCT_PRTA,
+            a.mbr_age, a.MBR_ID, a.cur_cap_sw, a.ret_cap_sw, a.CMS_PRTA, b.CMS_PRTB, d.CMS_PRTD, d.REINSURANCE_SUBSIDY_AMOUNT,
+            a.CAP_CTRCT, a.GROUPER, a.PGM_SOURCE, a.MBR_CUS_ID, b.CTRCT_PRTB, d.CTRCT_PRTD, a.STATUS, a.RUN_DATE, 
+            a.PROD_LOB, a.PRTA_PCT, b.PRTB_PCT, a.plan_name, 
+            a.seq_payment_header_id, nextval('SEQ_HUMANA_ID') AS SEQ_HUMANA_ID, 
+            a.PREM_LIS, a.UHG_CDO_ID, a.UHG_REGION_ID
+        FROM PAYMENT.ram_temp_humana_prta a
+        LEFT JOIN PAYMENT.ram_temp_humana_prtb b
+            ON a.seq_payment_header_id = b.seq_payment_header_id AND a.memberid = b.memberid 
+            AND a.Cap_Period = b.Cap_Period AND a.CAP_PROC_MONTH = b.CAP_PROC_MONTH
+            AND a.MCO_CTRCT = b.MCO_CTRCT AND a.PBP = b.PBP AND a.Provider_Id = b.Provider_Id 
+            AND a.PGM_SOURCE = b.PGM_SOURCE
+        LEFT JOIN PAYMENT.ram_temp_humana_prtd d
+            ON a.seq_payment_header_id = d.seq_payment_header_id AND a.memberid = d.memberid 
+            AND a.Cap_Period = d.Cap_Period AND a.CAP_PROC_MONTH = d.CAP_PROC_MONTH
+            AND a.MCO_CTRCT = d.MCO_CTRCT AND a.PBP = d.PBP AND a.Provider_Id = d.Provider_Id 
+            AND a.PGM_SOURCE = d.PGM_SOURCE
+        LEFT JOIN PAYMENT.ram_temp_humana_rsrv r
+            ON a.seq_payment_header_id = r.seq_payment_header_id AND a.memberid = r.memberid 
+            AND a.Cap_Period = r.Cap_Period AND a.CAP_PROC_MONTH = r.CAP_PROC_MONTH
+            AND a.MCO_CTRCT = r.MCO_CTRCT AND a.PBP = r.PBP AND a.Provider_Id = r.Provider_Id 
+            AND a.PGM_SOURCE = r.PGM_SOURCE
+        LEFT JOIN PAYMENT.ram_temp_humana_excl e
+            ON a.seq_payment_header_id = e.seq_payment_header_id AND a.memberid = e.memberid 
+            AND a.Cap_Period = e.Cap_Period AND a.CAP_PROC_MONTH = e.CAP_PROC_MONTH
+            AND a.MCO_CTRCT = e.MCO_CTRCT AND a.PBP = e.PBP AND a.Provider_Id = e.Provider_Id 
+            AND a.PGM_SOURCE = e.PGM_SOURCE
+        WHERE a.seq_payment_header_id = ANY(seq_payment_header_ids)
+        LIMIT batch_size;
+BEGIN
+    -- Open the cursor
+    OPEN batch_cursor;
+
+    -- Loop through the cursor and insert in batches
+    LOOP
+        FETCH batch_cursor INTO rec;
+        EXIT WHEN NOT FOUND;
+
+        INSERT INTO PAYMENT.ram_temp_humana_combined (
+            memberid, Cap_Period, CAP_PROC_MONTH, MBR_CAP_Start_Date, MBR_CAP_End_Date, CUR_MBRMO, RETRO_ADD,
+            RETRO_TRM, Entity, HealthPlan, PRODUCT, MCO_CTRCT, PBP, Provider_Id, PROV_NM, MM, PRTC_Fund_RTE, 
+            PRTA_FUND_RTE, PRTA_fund_TAX, PRTB_Fund_RTE, PRTD_FUND_RTE, RSRV_FUND_RTE, EXCL_FUND_RTE, Total_FP, 
+            mbr_nm, mbr_sex, ret_reason, CTRCT_PRTA, mbr_age, MBR_ID, cur_cap_sw, ret_cap_sw, CMS_PRTA, CMS_PRTB, 
+            CMS_PRTD, REINSURANCE_SUBSIDY_AMOUNT, CAP_CTRCT, GROUPER, PGM_SOURCE, MBR_CUS_ID, CTRCT_PRTB, 
+            CTRCT_PRTD, STATUS, RUN_DATE, PROD_LOB, PRTA_PCT, PRTB_PCT, PLAN_NAME, seq_payment_header_id, 
+            SEQ_HUMANA_ID, PREM_LIS, UHG_CDO_ID, UHG_REGION_ID
+        ) VALUES (CALL insert_humana_data_in_batches(ARRAY[101, 102, 103], 10000);
+
+            rec.memberid, rec.Cap_Period, rec.CAP_PROC_MONTH, rec.MBR_CAP_Start_Date, rec.MBR_CAP_End_Date, 
+            rec.CUR_MBRMO, rec.RETRO_ADD, rec.RETRO_TRM, rec.Entity, rec.HealthPlan, rec.PRODUCT, rec.MCO_CTRCT, 
+            rec.PBP, rec.Provider_Id, rec.PROV_NM, rec.MM, rec.PRTC_Fund_RTE, rec.PRTA_FUND_RTE, rec.PRTA_fund_TAX, 
+            rec.PRTB_Fund_RTE, rec.PRTD_FUND_RTE, rec.RSRV_FUND_RTE, rec.EXCL_FUND_RTE, rec.Total_FP, rec.mbr_nm, 
+            rec.mbr_sex, rec.ret_reason, rec.CTRCT_PRTA, rec.mbr_age, rec.MBR_ID, rec.cur_cap_sw, rec.ret_cap_sw, 
+            rec.CMS_PRTA, rec.CMS_PRTB, rec.CMS_PRTD, rec.REINSURANCE_SUBSIDY_AMOUNT, rec.CAP_CTRCT, rec.GROUPER, 
+            rec.PGM_SOURCE, rec.MBR_CUS_ID, rec.CTRCT_PRTB, rec.CTRCT_PRTD, rec.STATUS, rec.RUN_DATE, rec.PROD_LOB, 
+            rec.PRTA_PCT, rec.PRTB_PCT, rec.PLAN_NAME, rec.seq_payment_header_id, rec.SEQ_HUMANA_ID, rec.PREM_LIS, 
+            rec.UHG_CDO_ID, rec.UHG_REGION_ID
+        );
+    END LOOP;
+
+    -- Close cursor
+    CLOSE batch_cursor;
+END $$;
+-------------------
+ Optimized Stored Procedure
+This version:
+
+Accepts a list of seq_payment_header_id values as an array.
+Inserts rows in batches to prevent performance issues.
+Uses nextval('SEQ_HUMANA_ID') for automatic sequence values.
+-------------------
+CALL insert_humana_data_in_batches(ARRAY[101, 102, 103], 10000);
+
+----------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE insert_humana_data_in_batches(batch_size INT DEFAULT 10000)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    batch_cursor CURSOR FOR
+        SELECT DISTINCT 
+            a.memberid, a.Cap_Period, a.CAP_PROC_MONTH, a.MBR_CAP_Start_Date, a.MBR_CAP_End_Date, a.CUR_MBRMO, a.RETRO_ADD,
+            a.RETRO_TRM, 'OCN' AS Entity, 'Humana' AS HealthPlan, a.PRODUCT, a.MCO_CTRCT, a.PBP, a.Provider_Id,
+            a.PROV_NM,
+            CASE 
+                WHEN a.CUR_MBRMO > 0 THEN 1 
+                WHEN a.RETRO_ADD > 0 THEN 1 
+                WHEN a.RETRO_TRM < 0 THEN -1 
+                ELSE 0 
+            END AS MM,
+            a.PRTA_FUND_RTE + COALESCE(b.PRTB_Fund_RTE, 0) AS PRTC_Fund_RTE,
+            a.PRTA_FUND_RTE, a.PRTA_fund_TAX, b.PRTB_Fund_RTE, d.PRTD_FUND_RTE,
+            r.RSRV_FUND_RTE, e.EXCL_FUND_RTE,
+            a.PRTA_FUND_RTE + COALESCE(b.PRTB_Fund_RTE, 0) + COALESCE(d.PRTD_FUND_RTE, 0) + 
+            COALESCE(r.RSRV_FUND_RTE, 0) + COALESCE(e.EXCL_FUND_RTE, 0) AS Total_FP,
+            a.mbr_nm, a.mbr_sex, a.ret_reason, a.CTRCT_PRTA,
+            a.mbr_age, a.MBR_ID, a.cur_cap_sw, a.ret_cap_sw, a.CMS_PRTA, b.CMS_PRTB, d.CMS_PRTD, d.REINSURANCE_SUBSIDY_AMOUNT,
+            a.CAP_CTRCT, a.GROUPER, a.PGM_SOURCE, a.MBR_CUS_ID, b.CTRCT_PRTB, d.CTRCT_PRTD, a.STATUS, a.RUN_DATE, 
+            a.PROD_LOB, a.PRTA_PCT, b.PRTB_PCT, a.plan_name, 
+            a.seq_payment_header_id, nextval('SEQ_HUMANA_ID'), a.PREM_LIS, a.UHG_CDO_ID, a.UHG_REGION_ID
+        FROM PAYMENT.ram_temp_humana_prta a
+        LEFT JOIN PAYMENT.ram_temp_humana_prtb b
+            ON a.seq_payment_header_id = b.seq_payment_header_id AND a.memberid = b.memberid 
+            AND a.Cap_Period = b.Cap_Period AND a.CAP_PROC_MONTH = b.CAP_PROC_MONTH
+            AND a.MCO_CTRCT = b.MCO_CTRCT AND a.PBP = b.PBP AND a.Provider_Id = b.Provider_Id 
+            AND a.PGM_SOURCE = b.PGM_SOURCE
+        LEFT JOIN PAYMENT.ram_temp_humana_prtd d
+            ON a.seq_payment_header_id = d.seq_payment_header_id AND a.memberid = d.memberid 
+            AND a.Cap_Period = d.Cap_Period AND a.CAP_PROC_MONTH = d.CAP_PROC_MONTH
+            AND a.MCO_CTRCT = d.MCO_CTRCT AND a.PBP = d.PBP AND a.Provider_Id = d.Provider_Id 
+            AND a.PGM_SOURCE = d.PGM_SOURCE
+        LEFT JOIN PAYMENT.ram_temp_humana_rsrv r
+            ON a.seq_payment_header_id = r.seq_payment_header_id AND a.memberid = r.memberid 
+            AND a.Cap_Period = r.Cap_Period AND a.CAP_PROC_MONTH = r.CAP_PROC_MONTH
+            AND a.MCO_CTRCT = r.MCO_CTRCT AND a.PBP = r.PBP AND a.Provider_Id = r.Provider_Id 
+            AND a.PGM_SOURCE = r.PGM_SOURCE
+        LEFT JOIN PAYMENT.ram_temp_humana_excl e
+            ON a.seq_payment_header_id = e.seq_payment_header_id AND a.memberid = e.memberid 
+            AND a.Cap_Period = e.Cap_Period AND a.CAP_PROC_MONTH = e.CAP_PROC_MONTH
+            AND a.MCO_CTRCT = e.MCO_CTRCT AND a.PBP = e.PBP AND a.Provider_Id = e.Provider_Id 
+            AND a.PGM_SOURCE = e.PGM_SOURCE
+        WHERE a.seq_payment_header_id IN (SELECT seq_payment_header_id FROM PAYMENT.ram_temp_humana_prta LIMIT batch_size);
+    
+    rec RECORD;
+BEGIN
+    -- Open the cursor
+    OPEN batch_cursor;
+
+    -- Loop through the cursor and insert in batches
+    LOOP
+        FETCH batch_cursor INTO rec;
+        EXIT WHEN NOT FOUND;
+
+        INSERT INTO PAYMENT.ram_temp_humana_combined (
+            memberid, Cap_Period, CAP_PROC_MONTH, MBR_CAP_Start_Date, MBR_CAP_End_Date, CUR_MBRMO, RETRO_ADD,
+            RETRO_TRM, Entity, HealthPlan, PRODUCT, MCO_CTRCT, PBP, Provider_Id, PROV_NM, MM, PRTC_Fund_RTE, 
+            PRTA_FUND_RTE, PRTA_fund_TAX, PRTB_Fund_RTE, PRTD_FUND_RTE, RSRV_FUND_RTE, EXCL_FUND_RTE, Total_FP, 
+            mbr_nm, mbr_sex, ret_reason, CTRCT_PRTA, mbr_age, MBR_ID, cur_cap_sw, ret_cap_sw, CMS_PRTA, CMS_PRTB, 
+            CMS_PRTD, REINSURANCE_SUBSIDY_AMOUNT, CAP_CTRCT, GROUPER, PGM_SOURCE, MBR_CUS_ID, CTRCT_PRTB, 
+            CTRCT_PRTD, STATUS, RUN_DATE, PROD_LOB, PRTA_PCT, PRTB_PCT, PLAN_NAME, seq_payment_header_id, 
+            SEQ_HUMANA_ID, PREM_LIS, UHG_CDO_ID, UHG_REGION_ID
+        ) VALUES (
+            rec.memberid, rec.Cap_Period, rec.CAP_PROC_MONTH, rec.MBR_CAP_Start_Date, rec.MBR_CAP_End_Date, 
+            rec.CUR_MBRMO, rec.RETRO_ADD, rec.RETRO_TRM, rec.Entity, rec.HealthPlan, rec.PRODUCT, rec.MCO_CTRCT, 
+            rec.PBP, rec.Provider_Id, rec.PROV_NM, rec.MM, rec.PRTC_Fund_RTE, rec.PRTA_FUND_RTE, rec.PRTA_fund_TAX, 
+            rec.PRTB_Fund_RTE, rec.PRTD_FUND_RTE, rec.RSRV_FUND_RTE, rec.EXCL_FUND_RTE, rec.Total_FP, rec.mbr_nm, 
+            rec.mbr_sex, rec.ret_reason, rec.CTRCT_PRTA, rec.mbr_age, rec.MBR_ID, rec.cur_cap_sw, rec.ret_cap_sw, 
+            rec.CMS_PRTA, rec.CMS_PRTB, rec.CMS_PRTD, rec.REINSURANCE_SUBSIDY_AMOUNT, rec.CAP_CTRCT, rec.GROUPER, 
+            rec.PGM_SOURCE, rec.MBR_CUS_ID, rec.CTRCT_PRTB, rec.CTRCT_PRTD, rec.STATUS, rec.RUN_DATE, rec.PROD_LOB, 
+            rec.PRTA_PCT, rec.PRTB_PCT, rec.PLAN_NAME, rec.seq_payment_header_id, rec.SEQ_HUMANA_ID, rec.PREM_LIS, 
+            rec.UHG_CDO_ID, rec.UHG_REGION_ID
+        );
+    END LOOP;
+
+    -- Close cursor
+    CLOSE batch_cursor;
+END $$;
+----------------------------------------------
+Approach
+Process the data in chunks (e.g., 10,000 rows at a time).
+Use a stored procedure (PL/pgSQL) with a cursor to fetch the data in batches.
+Commit each batch separately to avoid long-running transactions.
+-------------------------------------
+CALL insert_humana_data_in_batches(10000);
+
