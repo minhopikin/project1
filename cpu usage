@@ -28,3 +28,9 @@ SELECT
   pg_stat_activity.backend_xmin
 FROM
   pg_stat_activity;
+Welcome to Snowflake!
+Your account has been activated.
+
+Username: RBESONG
+Dedicated Login URL: https://anykydc-zo46419.snowflakecomputing.com
+To login, simply visit your dedicated URL above or visit app.snowflake.com
