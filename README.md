@@ -1,25 +1,29 @@
-# project1
-
-We have a vulnerability that points to the operating system/network configuration of the server hosting our 
-database.
---------------------
-Vulnerability Description:
-The remote host answers to an ICMP timestamp request. This allows an attacker to know the date that is set on the targeted machine, which may assist an unauthenticated, remote attacker in defeating time-based authentication protocols.
-
-Timestamps returned from machines running Windows Vista / 7 / 2008 / 2008 R2 are deliberately incorrect, but usually within 1000 seconds of the actual system time.'
-------------------
-Risk Analysis:
-
-ICMP timestamp responses allow an attacker to infer the system time.
-
-This can aid in attacks that rely on time synchronization, such as:
-
-Defeating time-based authentication mechanisms and Coordinating replay attacks
---------------------------------------------------
-Recommended Solution: Disable ICMP Timestamp Responses
-
-Using iptables
-
-- sudo iptables -A INPUT -p icmp --icmp-type timestamp-request -j DROP
-
-- nft add rule inet filter input icmp type timestamp-request drop
+-- List declarative partitions that are empty (row count = 0)
+WITH partitions AS (
+  SELECT 
+    parent.relname AS parent_table,
+    parent_ns.nspname AS parent_schema,
+    child.relname AS partition_name,
+    child_ns.nspname AS partition_schema,
+    format('%I.%I', child_ns.nspname, child.relname) AS partition_full_name
+  FROM pg_partitioned_table p
+  JOIN pg_class parent ON p.partrelid = parent.oid
+  JOIN pg_namespace parent_ns ON parent.relnamespace = parent_ns.oid
+  JOIN pg_inherits i ON parent.oid = i.inhparent
+  JOIN pg_class child ON i.inhrelid = child.oid
+  JOIN pg_namespace child_ns ON child.relnamespace = child_ns.oid
+),
+partition_row_counts AS (
+  SELECT 
+    p.*,
+    pg_stat.reltuples::BIGINT AS estimated_rows
+  FROM partitions p
+  JOIN pg_class pg_stat ON pg_stat.relname = p.partition_name
+                        AND pg_stat.relnamespace = (
+                          SELECT oid FROM pg_namespace WHERE nspname = p.partition_schema
+                        )
+)
+SELECT *
+FROM partition_row_counts
+WHERE estimated_rows = 0
+ORDER BY parent_schema, parent_table, partition_name;
