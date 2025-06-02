@@ -94,5 +94,36 @@ BEGIN
     END LOOP;
 END
 $$ LANGUAGE plpgsql;
+--------------------------
+DO
+$$
+DECLARE
+    part RECORD;
+    row_count BIGINT;
+    drop_stmt TEXT;
+BEGIN
+    FOR part IN
+        SELECT 
+            child_ns.nspname AS partition_schema,
+            child.relname AS partition_name
+        FROM pg_partitioned_table p
+        JOIN pg_class parent ON p.partrelid = parent.oid
+        JOIN pg_inherits i ON parent.oid = i.inhparent
+        JOIN pg_class child ON i.inhrelid = child.oid
+        JOIN pg_namespace child_ns ON child.relnamespace = child_ns.oid
+    LOOP
+        BEGIN
+            EXECUTE format('SELECT COUNT(*) FROM %I.%I', part.partition_schema, part.partition_name) INTO row_count;
+            IF row_count = 0 THEN
+                drop_stmt := format('DROP TABLE %I.%I CASCADE;', part.partition_schema, part.partition_name);
+                RAISE NOTICE '%', drop_stmt;
+            END IF;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'Skipped %.% due to error.', part.partition_schema, part.partition_name;
+        END;
+    END LOOP;
+END
+$$ LANGUAGE plpgsql;
+----------------------------------------------------
 
 
