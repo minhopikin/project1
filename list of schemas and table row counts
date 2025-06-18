@@ -1,3 +1,144 @@
+1. PostgreSQL Metric Collection with pg_collector
+Step 1.1: Install and Configure pg_collector
+Clone the repo:
+
+bash
+Copy
+Edit
+git clone https://github.com/cloudnative-pg/pg_collector.git
+cd pg_collector
+Edit the config file pg_collector.yml:
+
+yaml
+Copy
+Edit
+database:
+  host: localhost
+  port: 5432
+  user: your_user
+  password: your_password
+  dbname: your_db
+metrics:
+  - pg_stat_database
+  - pg_stat_activity
+  - pg_stat_user_tables
+  - pg_locks
+  - custom_sql: "SELECT * FROM pg_stat_bgwriter;"
+output:
+  file: /var/log/pg_metrics.json
+  interval: 30s
+Step 1.2: Run the Collector
+bash
+Copy
+Edit
+python3 pg_collector.py --config pg_collector.yml
+2. Spring Boot Microservice for Polling and Forwarding
+Step 2.1: Set Up Project
+Use Spring Initializr to create a project with:
+
+Web
+
+Scheduling
+
+Mail (for email alerts)
+
+Spring Boot DevTools
+
+Step 2.2: Implement Metric Polling
+java
+Copy
+Edit
+@Scheduled(fixedRate = 30000)
+public void pollPgMetrics() {
+    File file = new File("/var/log/pg_metrics.json");
+    String metrics = Files.readString(file.toPath());
+    restTemplate.postForObject("http://localhost:5000/metrics", metrics, String.class);
+}
+Step 2.3: Forward to Python ML API
+Use RestTemplate or WebClient to POST the JSON to Python API.
+
+3. Python AI Agent for Anomaly Detection
+Step 3.1: Flask API for Receiving Metrics
+python
+Copy
+Edit
+from flask import Flask, request
+import pandas as pd
+from model import detect_anomalies  # custom logic
+
+app = Flask(__name__)
+
+@app.route('/metrics', methods=['POST'])
+def receive_metrics():
+    data = request.json
+    df = pd.DataFrame([data])
+    anomalies = detect_anomalies(df)
+    if anomalies:
+        send_email_alert(anomalies)
+    return {"status": "processed"}, 200
+Step 3.2: ML Anomaly Detection Logic
+Use IsolationForest, OneClassSVM, or LSTM for time-series:
+
+python
+Copy
+Edit
+from sklearn.ensemble import IsolationForest
+
+def detect_anomalies(df):
+    model = IsolationForest(contamination=0.1)
+    result = model.fit_predict(df.select_dtypes(include='number'))
+    df['anomaly'] = result
+    return df[df['anomaly'] == -1].to_dict(orient='records')
+Step 3.3: Email Alerts
+python
+Copy
+Edit
+import smtplib
+from email.message import EmailMessage
+
+def send_email_alert(anomalies):
+    msg = EmailMessage()
+    msg.set_content(f"Anomalies detected:\n{anomalies}")
+    msg['Subject'] = 'PostgreSQL Anomaly Alert'
+    msg['From'] = 'monitor@yourdomain.com'
+    msg['To'] = 'admin@yourdomain.com'
+    
+    with smtplib.SMTP('smtp.yourdomain.com') as server:
+        server.login('user', 'pass')
+        server.send_message(msg)
+4. Grafana Setup for Visualization
+Step 4.1: Store Metrics in a Time-Series DB
+Options:
+
+Write metrics to InfluxDB, Prometheus Pushgateway, or TimescaleDB.
+
+Adjust Spring Boot or Python to push metrics there.
+
+Step 4.2: Configure Grafana
+Add your TSDB as a data source.
+
+Create dashboards for:
+
+pg_stat_database
+
+pg_stat_activity
+
+Custom anomaly flags
+
+5. Optional: Docker/K8s Integration
+Step 5.1: Docker Compose
+Set up services: PostgreSQL, pg_collector, Spring Boot, Python ML API, Grafana, InfluxDB.
+
+Step 5.2: Kubernetes
+Define Helm charts or YAML for deployments, service discovery, secrets, etc.
+
+
+
+
+
+
+
+
 ---------------------------------
 SELECT
     n.nspname AS schema_name,
