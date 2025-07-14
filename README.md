@@ -1,129 +1,168 @@
--- List declarative partitions that are empty (row count = 0)
-WITH partitions AS (
-  SELECT 
-    parent.relname AS parent_table,
-    parent_ns.nspname AS parent_schema,
-    child.relname AS partition_name,
-    child_ns.nspname AS partition_schema,
-    format('%I.%I', child_ns.nspname, child.relname) AS partition_full_name
-  FROM pg_partitioned_table p
-  JOIN pg_class parent ON p.partrelid = parent.oid
-  JOIN pg_namespace parent_ns ON parent.relnamespace = parent_ns.oid
-  JOIN pg_inherits i ON parent.oid = i.inhparent
-  JOIN pg_class child ON i.inhrelid = child.oid
-  JOIN pg_namespace child_ns ON child.relnamespace = child_ns.oid
-),
-partition_row_counts AS (
-  SELECT 
-    p.*,
-    pg_stat.reltuples::BIGINT AS estimated_rows
-  FROM partitions p
-  JOIN pg_class pg_stat ON pg_stat.relname = p.partition_name
-                        AND pg_stat.relnamespace = (
-                          SELECT oid FROM pg_namespace WHERE nspname = p.partition_schema
-                        )
-)
-SELECT *
-FROM partition_row_counts
-WHERE estimated_rows = 0
-ORDER BY parent_schema, parent_table, partition_name;
-------------------
---script to generate drop table statements----
--- Generate DROP TABLE statements for empty declarative partitions
-WITH partitions AS (
-    SELECT 
-        child_ns.nspname AS partition_schema,
-        child.relname AS partition_name,
-        format('%I.%I', child_ns.nspname, child.relname) AS full_partition_name
-    FROM pg_partitioned_table p
-    JOIN pg_class parent ON p.partrelid = parent.oid
-    JOIN pg_inherits i ON parent.oid = i.inhparent
-    JOIN pg_class child ON i.inhrelid = child.oid
-    JOIN pg_namespace child_ns ON child.relnamespace = child_ns.oid
-),
-row_counts AS (
-    SELECT 
-        p.*,
-        (SELECT COUNT(*) FROM pg_catalog.pg_class c 
-         WHERE c.oid = (quote_ident(p.partition_schema) || '.' || quote_ident(p.partition_name))::regclass) AS sanity_check
-    FROM partitions p
-),
-real_counts AS (
-    SELECT 
-        p.partition_schema,
-        p.partition_name,
-        p.full_partition_name,
-        (SELECT COUNT(*) FROM pg_catalog.pg_class c 
-         WHERE c.oid = (quote_ident(p.partition_schema) || '.' || quote_ident(p.partition_name))::regclass) AS estimated_rows,
-        (SELECT COUNT(*) FROM (SELECT 1 FROM 
-            format('%I.%I', p.partition_schema, p.partition_name)::regclass LIMIT 1) sub) AS exists_check,
-        (SELECT COUNT(*) FROM format('%I.%I', p.partition_schema, p.partition_name)::regclass) AS exact_count
-    FROM partitions p
-)
-SELECT 
-    format('DROP TABLE %I.%I CASCADE;', partition_schema, partition_name) AS drop_statement
-FROM real_counts
-WHERE exact_count = 0;
----------------------
+[8:24 PM, 7/13/2025] Brother Peter: App.tsx
 
-DO
-$$
-DECLARE
-    part RECORD;
-    row_count BIGINT;
-BEGIN
-    FOR part IN
-        SELECT 
-            child_ns.nspname AS partition_schema,
-            child.relname AS partition_name,
-            format('%I.%I', child_ns.nspname, child.relname) AS full_partition_name
-        FROM pg_partitioned_table p
-        JOIN pg_class parent ON p.partrelid = parent.oid
-        JOIN pg_inherits i ON parent.oid = i.inhparent
-        JOIN pg_class child ON i.inhrelid = child.oid
-        JOIN pg_namespace child_ns ON child.relnamespace = child_ns.oid
-    LOOP
-        BEGIN
-            EXECUTE format('SELECT COUNT(*) FROM %I.%I', part.partition_schema, part.partition_name) INTO row_count;
-            IF row_count = 0 THEN
-                RAISE NOTICE 'DROP TABLE %I.%I CASCADE;', part.partition_schema, part.partition_name;
-            END IF;
-        EXCEPTION WHEN others THEN
-            RAISE NOTICE 'Skipped % due to error.', part.full_partition_name;
-        END;
-    END LOOP;
-END
-$$ LANGUAGE plpgsql;
---------------------------
-DO
-$$
-DECLARE
-    part RECORD;
-    row_count BIGINT;
-    drop_stmt TEXT;
-BEGIN
-    FOR part IN
-        SELECT 
-            child_ns.nspname AS partition_schema,
-            child.relname AS partition_name
-        FROM pg_partitioned_table p
-        JOIN pg_class parent ON p.partrelid = parent.oid
-        JOIN pg_inherits i ON parent.oid = i.inhparent
-        JOIN pg_class child ON i.inhrelid = child.oid
-        JOIN pg_namespace child_ns ON child.relnamespace = child_ns.oid
-    LOOP
-        BEGIN
-            EXECUTE format('SELECT COUNT(*) FROM %I.%I', part.partition_schema, part.partition_name) INTO row_count;
-            IF row_count = 0 THEN
-                drop_stmt := format('DROP TABLE %I.%I CASCADE;', part.partition_schema, part.partition_name);
-                RAISE NOTICE '%', drop_stmt;
-            END IF;
-        EXCEPTION WHEN OTHERS THEN
-            RAISE NOTICE 'Skipped %.% due to error.', part.partition_schema, part.partition_name;
-        END;
-    END LOOP;
-END
-$$ LANGUAGE plpgsql;
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { v4 as uuidv4 } from "uuid";
+
+type Message = {
+  id: string;
+  type: "user" | "bot",
+  text: string
+}
+
+
+
+const App = () => {
+  const API_URL = "http://localhost:8080/api/chat";
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState<string>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const messageRef = useRef<HTMLDivElement>(null);
+
+  
+  useEffect(() => {
+    messageRef.current?.scrollIntoView({ "behavior": "smooth" });
+  }, [messages]);
+
+  const sendMessage = useCallback(async () => {
+    if (!input.trim() || isLoading) return;
+
+    const newUserMessage: Message = {
+      id: uuidv4(),
+      type: "user",
+      text: input
+    }
+    setMessages((prev) => [...prev, newUserMessage]);
+    setInput("")
+    setIsLoading(true);
+
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ message: input })
+      });
+
+      if (!res.ok) throw new Error(Error failed to fetch: ${res.status});
+
+      const data = await res.text();
+
+      const botMessage: Message = {
+        id: uuidv4(),
+        type: "bot",
+        text: data
+      }
+      setMessages((prev) => [...prev, botMessage]);
+
+    } catch (error) {
+      console.log(error);
+
+      const errorMessage: Message = {
+        id: uuidv4(),
+        type: "bot",
+        text: Error connecting to the backend: ${error instanceof Error ? error.message : "Unknown error"},
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+
+  }, [input, isLoading])
+
+
+  return (
+    <main>
+      <h2>Chatbot</h2>
+      <section className="flex-1 overflow-y-auto p-4 space-y-2 bg-stone-300">
+        {messages.map((msg) => (
+          <div key={msg.id} className={`p-2 rounded-lg max-w-xs text-sm text-slate-700 m-2 ${msg.type === "user"
+            ? "self-end bg-blue-200"
+            : "self-start bg-gray-200"
+            }`}>
+            <span className="block font-semibold">{msg.type === "user" ? "You: " : "Bot: "}</span>
+            {msg.text}
+          </div>
+        ))}
+      </section>
+      <section className="flex p-4 border-t bg-white">
+        <input
+          type="text"
+          placeholder="Say Hello 👋..."
+          value={input}
+          aria-label="Chat input"
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !isLoading) {
+              sendMessage();
+            }
+          }}
+          disabled={isLoading}
+        />
+        <button
+          onClick={sendMessage}
+          className={`px-4 py-2 bg-blue-500 text-white rounded-lg ${isLoading ? "opacity-50 cursor-not-allowed" : "hover:bg-blue-600"
+            }`}
+          disabled={isLoading}
+        >{isLoading ? "Sending..." : "Send"}</button>
+      </section>
+    </main>
+  )
+}
+
+export default App
+[8:31 PM, 7/13/2025] Brother Peter: main.tsx
+
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.tsx'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+[8:31 PM, 7/13/2025] Brother Peter: index.html
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + React + TS</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+[8:32 PM, 7/13/2025] Brother Peter: .gitignore
+
+node_modules
+[8:33 PM, 7/13/2025] Brother Peter: App.css
+
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-slate-900;
+  }
+  h2 {
+    @apply text-3xl m-4 text-slate-300;
+  }
+  main {
+    @apply flex flex-col h-screen;
+  }
+}
+
+@layer components {
+  input {
+    @apply flex-1 border border-gray-300 rounded px-3 py-2 mr-2 focus:outline-none focus:ring focus:border-blue-500;
+  }
+}
 ----------------------------------------------------
 --------------------AI Agent----------------
   PostgreSQL Database  --->    pg_collector      --->    Spring Boot Service
