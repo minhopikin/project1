@@ -1,0 +1,249 @@
+1) grafana configuration---
+
+grafana login info:
+username: admin
+pwd     : d2A@u2a/22
+-------------------------------https://awesome-prometheus-alerts.grep.to/rules.html
+Grafana Installation:
+
+1. Disable SELinux
+
+Change SELINUX=enforcing to SELINUX=disabled and Reboot.
+
+vi /etc/sysconfig/selinux
+
+2. Now we need to create Grafana YUM repository
+
+vi /etc/yum.repos.d/grafana.repo
+
+and add following lines to it
+
+[grafana]
+name=grafana
+baseurl=https://packages.grafana.com/oss/rpm
+repo_gpgcheck=1
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.grafana.com/gpg.key
+sslverify=1
+sslcacert=/etc/pki/tls/certs/ca-bundle.crt
+
+3. Install Grafana now using YUM
+
+yum install grafana
+
+* This will install all binaries to location /usr/sbin/grafana-server, 
+  copies init.d file to /etc/init.d/grafana-server and default 
+  log location would be /var/log/grafana/grafana.log.
+
+4. Install additional font packages
+
+sudo yum install fontconfig
+sudo yum install freetype*
+sudo yum install urw-fonts
+
+5. Now, enable grafana service
+
+Enable Grafana service on system boot
+sudo systemctl enable grafana-server.service
+
+Start it using the following command:
+sudo systemctl start grafana-server
+
+6. Check Grafana web interface
+
+grafana dev http://10.28.83.226:3000/
+prometheus dev http://10.28.83.226:9090/graph   http://10.48.149.197:3000/
+
+Note: Default username and password is admin, and once you login, it will prompt you to set a new password.
+------------------------------------------------------------------------
+
+2) Prometheus Installation & Config
+
+1. Download and untar the Prometheus file for your respective OS.
+Example:
+sudo curl -LO url -LO https://github.com/prometheus/prometheus/releases/download/v2.22.0/prometheus-2.22.0.linux-amd64.tar.gz
+sudo tar -xvf prometheus-2.22.0.linux-amd64.tar.gz
+sudo mv prometheus-2.22.0.linux-amd64 prometheus-files
+
+2. Create prometheus user, directories and make that account owner for all the files and folders.
+
+sudo useradd --no-create-home --shell /bin/false prometheus
+sudo mkdir /etc/prometheus
+sudo mkdir /var/lib/prometheus
+sudo chown prometheus:prometheus /etc/prometheus
+sudo chown prometheus:prometheus /var/lib/prometheus
+
+3. Copy prometheus and promtool binaries from prometheus-files to /usr/local/bin and change ownership
+
+sudo cp prometheus-files/prometheus /usr/local/bin/
+sudo cp prometheus-files/promtool /usr/local/bin/
+sudo chown prometheus:prometheus /usr/local/bin/prometheus
+sudo chown prometheus:prometheus /usr/local/bin/promtool
+
+4. Move consoles and console_libraries directories from prometheus-files to /etc/prometheus folder and change ownership
+
+sudo cp -r prometheus-files/consoles /etc/prometheus
+sudo cp -r prometheus-files/console_libraries /etc/prometheus
+sudo chown -R prometheus:prometheus /etc/prometheus/consoles
+sudo chown -R prometheus:prometheus /etc/prometheus/console_libraries
+
+5. Now time to configure. Create prometheus.yml file
+
+sudo vi /etc/prometheus/prometheus.yml
+
+copy below entries to the YAML file
+
+global:
+  scrape_interval: 10s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['10.48.149.197:9090']
+6. Change ownership of this file
+
+sudo chown prometheus:prometheus /etc/prometheus/prometheus.yml
+
+7. Create prometheus service file
+
+sudo vi /etc/systemd/system/prometheus.service
+
+copy below entries to the file.
+
+[Unit]
+Description=Prometheus
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=prometheus
+Group=prometheus
+Type=simple
+ExecStart=/usr/local/bin/prometheus \
+    --config.file /etc/prometheus/prometheus.yml \
+    --storage.tsdb.path /var/lib/prometheus/ \
+    --web.console.templates=/etc/prometheus/consoles \
+    --web.console.libraries=/etc/prometheus/console_libraries
+
+[Install]
+WantedBy=multi-user.target
+
+8. Register systemd service to register prometheus service and start it.
+
+sudo systemctl daemon-reload
+sudo systemctl enable prometheus
+sudo systemctl start prometheus
+
+and check the status of the service
+
+sudo systemctl status prometheus
+
+9. If no issues till here, you are all good, time to check Prometheus WEB GUI, you can access its using below URL.
+
+http://10.48.149.197:9090/graph
+
+10. You can check other stats and other available metrics via GUI console.
+
+11. Now you will start seeing ‘Prometheus’ in the list of data sources along with PostgreSQL which we have added at the first step.
+
+
+
+3) Postgres_Exporter Installation and configuration
+--------------------------------------------------
+Now, when Grafana and Prometheus is all set, time to install and configure postgres_exporter. Postgres_exporter is a popular PostgreSQL metric exporter for Prometheus.
+
+1. Create required directories.
+
+sudo mkdir /opt/postgres_exporter
+cd /opt/postgres_exporter
+
+2. Download and untar the file.
+
+sudo wget https://github.com/wrouesnel/postgres_exporter/releases/download/v0.5.1/postgres_exporter_v0.5.1_linux-amd64.tar.gz
+tar -xzvf postgres_exporter_v0.5.1_linux-amd64.tar.gz
+
+3. Copy core file ‘postgres_exporter’ file to /usr/local/bin directory
+cd postgres_exporter_v0.5.1_linux-amd64
+cp postgres_exporter /usr/local/bin
+sudo chown postgres:postgres postgres_exporter   
+4. Next, lets create the configuration file for postres_exporter
+
+cd /opt/postgres_exporter
+sudo vi postgres_exporter.env
+DATA_SOURCE_NAME='postgresql://user@localhost:5432/postgres?sslmode=disable'
+**This is for all database, you can also monitor any specific database.
+**use localhost if prometheus server and postgres exporter runs on the same serever.
+
+5. Next, create the service for postgres_exporter
+
+sudo vi /etc/systemd/system/postgres_exporter.service
+
+put below lines to the service file                     -----/opt/postgres_exporter/postgres_exporter.env
+
+[Unit]
+Description=Prometheus exporter for Postgresql
+Wants=network-online.target
+After=network-online.target
+[Service]
+User=postgres
+Group=postgres
+WorkingDirectory=/opt/postgres_exporter
+EnvironmentFile=/opt/postgres_exporter/postgres_exporter.env
+ExecStart=/usr/local/bin/postgres_exporter
+Restart=always
+[Install]
+WantedBy=multi-user.target
+
+6. Next enable service and check status
+
+sudo systemctl daemon-reload
+sudo systemctl start postgres_exporter
+sudo systemctl enable postgres_exporter
+sudo systemctl status postgres_exporter
+
+
+Installing Node Exporter
+==============================
+1) sudo wget https://github.com/prometheus/node_exporter/releases/download/v1.3.0/node_exporter-1.3.0.linux-amd64.tar.gz
+2) sudo tar -xf node_exporter-1.3.0.linux-amd64.tar.gz
+3) sudo mv node_exporter-*/node_exporter /usr/local/bin
+4) sudo adduser -M -r -s /sbin/nologin node_exporter
+5) sudo vi /etc/systemd/system/node_exporter.service
+   
+  [Unit]
+Description=Node Exporter
+After=network.target
+
+[Service]
+User=node_exporter
+Group=node_exporter
+Type=simple
+ExecStart=/usr/local/bin/node_exporter
+
+[Install]
+WantedBy=multi-user.target
+
+6) sudo systemctl daemon-reload
+   sudo systemctl enable --now node_exporter
+   sudo systemctl status node_exporter
+sudo ss -aplnt | grep node (to verify the port
+
+7) Add node_exporter to Prometheus server
+ 
+ sudo vi /etc/prometheus/prometheus.yml
+
+  - job_name: 'node_exporter'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['SERVER-IP:9100']
+sudo systemctl restart prometheus
+----------old mail server --10.201.125.94
+$ nslookup smtp.uhc.com
+Server:         10.7.136.103
+Address:        10.7.136.103#53
+
+Alert Manager Installation
+
+https://blog.ruanbekker.com/blog/2019/05/17/install-alertmanager-to-alert-based-on-metrics-from-prometheus/
