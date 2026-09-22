@@ -1,0 +1,89 @@
+SET NOCOUNT ON;
+BEGIN TRANSACTION;
+
+BEGIN TRY
+    -- 1. Declare target inputs (passed from build environment)
+    DECLARE @HostName NVARCHAR(100)  = 'npdarsvrmsd811d.fcpd.fcbint.net';
+    DECLARE @IPAddress NVARCHAR(50)  = '10.7.14.71';
+    DECLARE @InstanceName NVARCHAR(100) = 'DEFAULT';
+    DECLARE @DBName NVARCHAR(100)    = 'postgres_db';
+    DECLARE @AppName NVARCHAR(100)   = 'PostgresApp';
+    
+    -- Keys & IDs based on environment (Dev/QA/Prod)
+    DECLARE @Env_Key INT = 1;          -- e.g., 1 = Non-Prod / Dev
+    DECLARE @Status_Key INT = 2;       -- e.g., 2 = Active
+    DECLARE @DB_Type_Id INT = 27;      -- Postgres DB Type ID
+    DECLARE @Port INT = 5432;          -- Postgres Default Port
+    DECLARE @Used_By NVARCHAR(50) = 'FCB';
+
+    DECLARE @NewHostID INT;
+    DECLARE @NewInstanceID INT;
+    DECLARE @NewDBID INT;
+
+    -- 2. Insert into HostInfo if not exists, retrieve HostID
+    IF NOT EXISTS (SELECT 1 FROM [dbstatus].[dbo].[HostInfo] WHERE [hostname] = @HostName)
+    BEGIN
+        INSERT INTO [dbstatus].[dbo].[HostInfo] 
+            ([hostname], [IPAddress], [status_key], [Used_By])
+        VALUES 
+            (@HostName, @IPAddress, @Status_Key, @Used_By);
+            
+        SET @NewHostID = SCOPE_IDENTITY();
+    END
+    ELSE
+    BEGIN
+        SELECT @NewHostID = [HostID] 
+        FROM [dbstatus].[dbo].[HostInfo] 
+        WHERE [hostname] = @HostName;
+    END
+
+    -- 3. Insert into InstanceInfo if not exists, retrieve InstanceID
+    IF NOT EXISTS (SELECT 1 FROM [dbstatus].[dbo].[InstanceInfo] WHERE [hostid] = @NewHostID AND [instanceName] = @InstanceName)
+    BEGIN
+        INSERT INTO [dbstatus].[dbo].[InstanceInfo] 
+            ([hostid], [instanceName], [DB_Type_Id], [Port], [Status_Key], [Env_key], [Used_By])
+        VALUES 
+            (@NewHostID, @InstanceName, @DB_Type_Id, @Port, @Status_Key, @Env_Key, @Used_By);
+            
+        SET @NewInstanceID = SCOPE_IDENTITY();
+    END
+    ELSE
+    BEGIN
+        SELECT @NewInstanceID = [instanceId] 
+        FROM [dbstatus].[dbo].[InstanceInfo] 
+        WHERE [hostid] = @NewHostID AND [instanceName] = @InstanceName;
+    END
+
+    -- 4. Insert into DBinfo if not exists, retrieve DBID
+    IF NOT EXISTS (SELECT 1 FROM [dbstatus].[dbo].[DBinfo] WHERE [hostid] = @NewHostID AND [instanceId] = @NewInstanceID AND [Dbname] = @DBName)
+    BEGIN
+        INSERT INTO [dbstatus].[dbo].[DBinfo] 
+            ([hostid], [instanceId], [Dbname], [createdDate], [Env_Key], [Status_Key], [Used_By])
+        VALUES 
+            (@NewHostID, @NewInstanceID, @DBName, GETDATE(), @Env_Key, @Status_Key, @Used_By);
+            
+        SET @NewDBID = SCOPE_IDENTITY();
+    END
+    ELSE
+    BEGIN
+        SELECT @NewDBID = [dbid] 
+        FROM [dbstatus].[dbo].[DBinfo] 
+        WHERE [hostid] = @NewHostID AND [instanceId] = @NewInstanceID AND [Dbname] = @DBName;
+    END
+
+    -- 5. Optional: Insert Application Mapping into AppInfo
+    IF @AppName IS NOT NULL AND NOT EXISTS (SELECT 1 FROM [dbstatus].[dbo].[AppInfo] WHERE [dbid] = @NewDBID AND [AppName] = @AppName)
+    BEGIN
+        INSERT INTO [dbstatus].[dbo].[AppInfo] 
+            ([dbid], [AppTypeId], [AppName])
+        VALUES 
+            (@NewDBID, 1, @AppName);
+    END
+
+    COMMIT TRANSACTION;
+    PRINT 'Server, Instance, and Database successfully registered in DBPortal.';
+END TRY
+BEGIN CATCH
+    ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
