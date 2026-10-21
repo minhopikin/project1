@@ -1,0 +1,303 @@
+/* Test loader for the supplied Bash/psql plain-text inventory format.
+   SQL Server 2016 SP1+; dbstatus compatibility level >=130.
+   Self-contained: does not require the earlier registration procedure.
+   Fixed local file: C:\xyz\inventory.txt. File MUST contain the actual report,
+   not a screenshot, terminal copy with wrapped lines, or UTF-16 conversion.
+   Save original Linux output as UTF-8. Preview never writes to target tables.
+   Existing records are kept, NOT updated. Review test results in DBPortal.
+*/
+USE [dbstatus];
+GO
+CREATE OR ALTER PROCEDURE dbo.usp_ImportPostgresInventoryFile
+    @FilePath nvarchar(260)=N'<C:\xyz\inventory.txt>',
+    @Preview bit=1,
+    @InstanceName varchar(50)=NULL,
+    @EnvKey int=NULL,
+    @PlatformType int=NULL,
+    @IPAddress varchar(20)=NULL,
+    @UsedBy varchar(4)='FCB',
+    @OSId int=2,
+    @OSVersionId int=NULL,
+    @OSPakId int=3,
+    @DBTypeId int=61,
+    @DBVersionId int=NULL,
+    @DBPakId int=3,
+    @StatusKey int=NULL,
+    @ArchivalKey int=2,
+    @IncludeTemplates bit=1,
+    @RegisterApplications bit=0,
+    @AppName varchar(300)=NULL,
+    @AppTypeID int=1,
+    @ContactKey int=NULL,
+    @BAIID int=NULL,
+    @BAIEnvKey varchar(25)=NULL,
+    @PortalUsername nvarchar(max)=NULL,
+    @PortalPassword nvarchar(max)=NULL,
+    @IsEncrypted bit=NULL,
+    @AllowEmptyCredentials bit=0
+AS
+BEGIN
+ SET NOCOUNT ON;
+ SET XACT_ABORT ON;
+ IF @@TRANCOUNT<>0 THROW 51000, 'Run outside an existing transaction.', 1;
+ IF @Preview IS NULL OR @IncludeTemplates IS NULL OR @RegisterApplications IS NULL
+   THROW 51000, 'Preview/include/register flags cannot be NULL.', 1;
+ IF @FilePath IS NULL OR @FilePath COLLATE Latin1_General_100_BIN2<>N'C:\xyz\inventory.txt'
+   THROW 51000, 'This test loader only reads C:\xyz\inventory.txt. Change the fixed literal in the procedure for another path.', 1;
+ DECLARE @Text nvarchar(max);
+ SELECT @Text=CONVERT(nvarchar(max),BulkColumn)
+ FROM OPENROWSET(BULK 'C:\xyz\inventory.txt', SINGLE_CLOB, CODEPAGE='65001') AS FileData;
+ IF @Text IS NULL OR LEN(@Text)=0 THROW 51000, 'Inventory file is empty.', 1;
+ IF DATALENGTH(@Text)>2097152 THROW 51000, 'Inventory file exceeds the 2 MB test limit.', 1;
+ SET @Text=REPLACE(REPLACE(@Text,NCHAR(65279),N''),CHAR(13),N'');
+ DECLARE @Lines TABLE (n int PRIMARY KEY, txt nvarchar(max));
+ INSERT @Lines SELECT CONVERT(int,[key])+1,LTRIM(RTRIM(value))
+ FROM OPENJSON(N'["'+REPLACE(STRING_ESCAPE(@Text,'json'),N'\n',N'","')+N'"]');
+ IF (SELECT COUNT(*) FROM @Lines WHERE txt=N'POSTGRESQL LOCAL INVENTORY TEST')<>1
+   THROW 51000, 'Expected one inventory report header; use original file, not a terminal transcript.', 1;
+ IF (SELECT COUNT(*) FROM @Lines WHERE txt LIKE N'Collection completed.%')<>1
+   THROW 51000, 'Collection completion marker missing or repeated.', 1;
+ DECLARE @Host nvarchar(250),@IPText nvarchar(max),@OS nvarchar(max),@Row nvarchar(max),
+         @Version nvarchar(100),@Port int,@InRecovery varchar(5),
+         @Start int,@Finish int,@Sep int,@Header int,@Count int,@N int,@Limit int,
+         @DeclaredRows int,@ParsedRows int,@Major int,@Minor int,@VersionLabel nvarchar(100);
+ IF (SELECT COUNT(*) FROM @Lines WHERE txt LIKE N'Host FQDN:%')<>1
+   THROW 51000, 'Expected exactly one Host FQDN line.', 1;
+ IF EXISTS (SELECT 1 FROM @Lines WHERE txt LIKE N'Host FQDN:%' AND LEN(SUBSTRING(txt,11,4000))>250)
+   THROW 51000, 'Hostname exceeds 250 characters.', 1;
+ SELECT @Host=LOWER(LTRIM(RTRIM(SUBSTRING(txt,LEN(N'Host FQDN:')+1,4000)))) FROM @Lines WHERE txt LIKE N'Host FQDN:%';
+ SELECT @IPText=LTRIM(RTRIM(SUBSTRING(txt,LEN(N'Host addresses (verify registered IP):')+1,4000))) FROM @Lines WHERE txt LIKE N'Host addresses (verify registered IP):%';
+ SELECT @OS=LTRIM(RTRIM(SUBSTRING(txt,LEN(N'Operating system:')+1,4000))) FROM @Lines WHERE txt LIKE N'Operating system:%';
+ IF @Host IS NULL OR @Host=N'' OR @Host LIKE N'%<%' THROW 51000, 'Invalid report hostname.', 1;
+ -- A report can list several interface addresses; do not pick one arbitrarily.
+ IF @IPAddress IS NULL AND @IPText IS NOT NULL AND LEN(@IPText)<=20
+    AND @IPText NOT LIKE N'% %' AND @IPText NOT LIKE N'%:%' SET @IPAddress=CONVERT(varchar(20),@IPText);
+ IF NULLIF(@IPAddress,'') IS NULL THROW 51000, 'Supply @IPAddress: report IP is missing or ambiguous.', 1;
+ IF @IPAddress LIKE '%[^0-9.]%' OR LEN(@IPAddress)-LEN(REPLACE(@IPAddress,'.',''))<>3
+    OR TRY_CONVERT(int,PARSENAME(@IPAddress,1)) NOT BETWEEN 0 AND 255
+    OR TRY_CONVERT(int,PARSENAME(@IPAddress,2)) NOT BETWEEN 0 AND 255
+    OR TRY_CONVERT(int,PARSENAME(@IPAddress,3)) NOT BETWEEN 0 AND 255
+    OR TRY_CONVERT(int,PARSENAME(@IPAddress,4)) NOT BETWEEN 0 AND 255
+    OR PARSENAME(@IPAddress,1) IS NULL OR PARSENAME(@IPAddress,2) IS NULL
+    OR PARSENAME(@IPAddress,3) IS NULL OR PARSENAME(@IPAddress,4) IS NULL
+   THROW 51000, 'Supply a valid registered IPv4 address.', 1;
+ IF @OSVersionId IS NULL AND @OS LIKE N'Red Hat Enterprise Linux 9%' SET @OSVersionId=51;
+ IF @OSVersionId IS NULL AND @OS LIKE N'Red Hat Enterprise Linux 8%' SET @OSVersionId=2;
+ IF @InstanceName IS NULL
+   SELECT @InstanceName=CONVERT(varchar(50),LTRIM(RTRIM(SUBSTRING(txt,LEN(N'Portal instance name (supplied):')+1,4000))))
+   FROM @Lines WHERE txt LIKE N'Portal instance name (supplied):%' AND LEN(txt)<=LEN(N'Portal instance name (supplied):')+51;
+ IF NULLIF(@InstanceName,'') IS NULL OR @InstanceName LIKE '%<%'
+   THROW 51000, 'Supply @InstanceName; report has an unresolved instance placeholder.', 1;
+ IF @EnvKey IS NULL OR @PlatformType IS NULL OR @StatusKey IS NULL
+   THROW 51000, 'Supply @EnvKey, @PlatformType and @StatusKey; these are business/inventory choices.', 1;
+ IF NULLIF(@UsedBy,'') IS NULL OR @UsedBy LIKE '%<%' THROW 51000, 'Invalid @UsedBy.', 1;
+ IF @DBTypeId NOT IN (61,64) OR @DBTypeId IS NULL THROW 51000, 'Supported PostgreSQL type IDs: 61 or 64.', 1;
+ -- Parse exactly one instance data row, taking only version/port/recovery columns.
+ SELECT @Start=MIN(n) FROM @Lines WHERE txt=N'INSTANCE DETAILS';
+ SELECT @Finish=MIN(n) FROM @Lines WHERE n>@Start AND txt LIKE N'DATABASE DETAILS%';
+ SELECT @Header=MIN(n) FROM @Lines WHERE n>@Start AND n<@Finish AND txt LIKE N'server_version%server_port%';
+ SELECT @Sep=MIN(n) FROM @Lines WHERE n>@Header AND n<@Finish AND txt<>N'' AND txt NOT LIKE N'%[^-+]%';
+ SELECT @N=MIN(n) FROM @Lines WHERE n>@Sep AND n<@Finish AND CHARINDEX(N'|',txt)>0;
+ SELECT @Row=txt FROM @Lines WHERE n=@N;
+ IF @Row IS NULL THROW 51000, 'Instance table not recognized. Original unwrapped psql output is required.', 1;
+ IF NOT EXISTS (SELECT 1 FROM @Lines WHERE n>@N AND n<@Finish AND txt=N'(1 row)')
+   THROW 51000, 'Instance row count not found.', 1;
+ DECLARE @Fields TABLE (pos int PRIMARY KEY, val nvarchar(max));
+ INSERT @Fields SELECT CONVERT(int,[key]),LTRIM(RTRIM(value))
+ FROM OPENJSON(N'["'+REPLACE(STRING_ESCAPE(@Row,'json'),N'|',N'","')+N'"]');
+ SELECT @Version=val FROM @Fields WHERE pos=0;
+ SELECT @Port=TRY_CONVERT(int,val) FROM @Fields WHERE pos=1;
+ SELECT @InRecovery=val FROM @Fields WHERE pos=3;
+ IF @Port IS NULL OR @Port NOT BETWEEN 1 AND 65535 OR @InRecovery NOT IN ('t','f') OR @InRecovery IS NULL
+   THROW 51000, 'Invalid instance data or wrapped data row.', 1;
+ -- EDB server_version 16.15.0 maps to this portal's canonical PostgreSQL 16.15.
+ -- Only accept optional third component 0; do not silently strip a nonzero vendor patch.
+ DECLARE @V TABLE (pos int PRIMARY KEY,val nvarchar(100));
+ INSERT @V SELECT CONVERT(int,[key]),value FROM OPENJSON(N'["'+REPLACE(STRING_ESCAPE(@Version,'json'),N'.',N'","')+N'"]');
+ SELECT @Major=TRY_CONVERT(int,val) FROM @V WHERE pos=0;
+ SELECT @Minor=TRY_CONVERT(int,val) FROM @V WHERE pos=1;
+ IF @DBVersionId IS NULL
+ BEGIN
+  IF @Major IS NULL OR @Major<10 OR @Minor IS NULL OR @Minor<0
+    OR (SELECT COUNT(*) FROM @V) NOT IN (2,3)
+    OR EXISTS (SELECT 1 FROM @V WHERE pos=2 AND val<>N'0')
+    THROW 51000, 'Version needs an explicit, verified @DBVersionId.', 1;
+  SET @VersionLabel=N'PostgreSQL '+CONVERT(nvarchar(10),@Major)+N'.'+CONVERT(nvarchar(10),@Minor);
+  SELECT @Count=COUNT(*),@DBVersionId=MIN(DB_Version_Id) FROM dbo.DBVersion WHERE DB_Version_Nm=@VersionLabel;
+  IF @Count<>1 THROW 51000, 'Canonical DBVersion lookup missing/ambiguous; provide verified @DBVersionId.', 1;
+ END;
+ -- Parse database rows: exactly five pipe-delimited columns and declared row count.
+ SELECT @Header=MIN(n) FROM @Lines WHERE n>@Finish AND txt LIKE N'database_name%database_owner%';
+ SELECT @Sep=MIN(n) FROM @Lines WHERE n>@Header AND txt<>N'' AND txt NOT LIKE N'%[^-+]%';
+ SELECT @Limit=MIN(n) FROM @Lines WHERE n>@Sep AND txt LIKE N'(% row%)';
+ SELECT @DeclaredRows=TRY_CONVERT(int,SUBSTRING(txt,2,CHARINDEX(N' ',txt)-2)) FROM @Lines WHERE n=@Limit;
+ IF @Sep IS NULL OR @Limit IS NULL OR @DeclaredRows IS NULL OR @DeclaredRows<1
+   THROW 51000, 'Database table/row count not recognized.', 1;
+ DECLARE @DBs TABLE (Dbname nvarchar(256) COLLATE Latin1_General_100_BIN2 PRIMARY KEY, IsTemplate bit, OwnerName nvarchar(256),
+                      ExistingID int NULL, ProposedAction varchar(20) NULL);
+ DECLARE @Name nvarchar(max),@Owner nvarchar(max),@Template varchar(5),@Allow varchar(5);
+ SET @N=@Sep+1; SET @ParsedRows=0;
+ WHILE @N<@Limit
+ BEGIN
+  SELECT @Row=txt FROM @Lines WHERE n=@N;
+  IF NULLIF(@Row,N'') IS NOT NULL
+  BEGIN
+   IF LEN(@Row)-LEN(REPLACE(@Row,N'|',N''))<>4
+     THROW 51000, 'Database row has wrong column count; wrapped/multiline or pipe-containing names are unsupported.', 1;
+   DELETE @Fields;
+   INSERT @Fields SELECT CONVERT(int,[key]),LTRIM(RTRIM(value)) FROM OPENJSON(N'["'+REPLACE(STRING_ESCAPE(@Row,'json'),N'|',N'","')+N'"]');
+   SELECT @Name=val FROM @Fields WHERE pos=0;
+   SELECT @Owner=val FROM @Fields WHERE pos=1;
+   SELECT @Template=val FROM @Fields WHERE pos=3;
+   SELECT @Allow=val FROM @Fields WHERE pos=4;
+   IF NULLIF(@Name,N'') IS NULL OR LEN(@Name)>256 OR @Template NOT IN ('t','f') OR @Allow NOT IN ('t','f')
+     THROW 51000, 'Invalid database row.', 1;
+   -- Plain psql alignment trims names; unusual leading/trailing-space names require structured export.
+   INSERT @DBs (Dbname,IsTemplate,OwnerName) VALUES (@Name,CASE WHEN @Template='t' THEN 1 ELSE 0 END,@Owner);
+   SET @ParsedRows+=1;
+  END;
+  SET @N+=1;
+ END;
+ IF @ParsedRows<>@DeclaredRows THROW 51000, 'Parsed database count differs from report row count.', 1;
+ IF @IncludeTemplates=0 DELETE @DBs WHERE IsTemplate=1;
+ IF NOT EXISTS (SELECT 1 FROM @DBs) THROW 51000, 'No databases selected.', 1;
+ IF @RegisterApplications=1
+ BEGIN
+  IF @AppName IS NULL OR @AppName='' OR @AppName LIKE '%<%' OR @ContactKey IS NULL
+    THROW 51000, 'Application registration requires actual @AppName and @ContactKey.', 1;
+  IF NOT EXISTS (SELECT 1 FROM dbo.AppContact WHERE Contact_key=@ContactKey)
+    THROW 51000, 'Contact key not found.', 1;
+  IF NOT EXISTS (SELECT 1 FROM dbo.AppType WHERE AppTypeID=@AppTypeID)
+    THROW 51000, 'Application type not found.', 1;
+ END;
+ -- Validate referenced lookup IDs without inserting any new lookup definitions.
+ IF NOT EXISTS (SELECT 1 FROM dbo.OS WHERE OS_Id=@OSId) THROW 51000,'OS lookup missing.',1;
+ IF NOT EXISTS (SELECT 1 FROM dbo.OSVersion WHERE OS_Version_Id=@OSVersionId) THROW 51000,'OS version lookup missing; provide @OSVersionId.',1;
+ IF NOT EXISTS (SELECT 1 FROM dbo.OSPak WHERE OS_Pak_Id=@OSPakId) THROW 51000,'OS package lookup missing.',1;
+ IF NOT EXISTS (SELECT 1 FROM dbo.Platform WHERE Platform_Type=@PlatformType) THROW 51000,'Platform lookup missing.',1;
+ IF NOT EXISTS (SELECT 1 FROM dbo.DBType WHERE DB_Type_Id=@DBTypeId) THROW 51000,'DB type lookup missing.',1;
+ IF NOT EXISTS (SELECT 1 FROM dbo.DBVersion WHERE DB_Version_Id=@DBVersionId) THROW 51000,'DB version lookup missing.',1;
+ IF NOT EXISTS (SELECT 1 FROM dbo.DBPak WHERE DB_Pak_Id=@DBPakId) THROW 51000,'DB package lookup missing.',1;
+ IF NOT EXISTS (SELECT 1 FROM dbo.EnvInfo WHERE Env_Key=@EnvKey) THROW 51000,'Environment lookup missing.',1;
+ IF NOT EXISTS (SELECT 1 FROM dbo.StatusInfo WHERE Status_Key=@StatusKey) THROW 51000,'Status lookup missing.',1;
+ IF NOT EXISTS (SELECT 1 FROM dbo.ArchivalInfo WHERE archival_key=@ArchivalKey) THROW 51000,'Archival lookup missing.',1;
+ DECLARE @HostID int,@InstanceID int,@DBID int,@AppID int,@Lock int,@HostAction varchar(20),@InstanceAction varchar(20);
+ DECLARE @Results TABLE (Seq int IDENTITY,Entity varchar(20),Name nvarchar(600),Action varchar(30),RecordID int);
+ BEGIN TRY
+  BEGIN TRANSACTION;
+  -- Same lock name as the earlier registration implementation.
+  EXEC @Lock=sys.sp_getapplock @Resource=N'DBPortal.Inventory.Registration',@LockMode='Exclusive',@LockOwner='Transaction',@LockTimeout=15000;
+  IF @Lock<0 THROW 51000,'Could not acquire import lock.',1;
+  SELECT @Count=COUNT(*),@HostID=MIN(HostID) FROM dbo.HostInfo WITH (UPDLOCK,HOLDLOCK) WHERE hostname=@Host AND Used_By=@UsedBy;
+  IF @Count>1 THROW 51000,'Duplicate existing host match; resolve ambiguity.',1;
+  SET @HostAction=CASE WHEN @Count=0 THEN 'Create' ELSE 'Keep existing' END;
+  SELECT @Count=COUNT(*),@InstanceID=MIN(instanceId) FROM dbo.InstanceInfo WITH (UPDLOCK,HOLDLOCK) WHERE hostId=@HostID AND Port=@Port;
+  IF @Count>1 THROW 51000,'Duplicate existing instance match.',1;
+  SET @InstanceAction=CASE WHEN @Count=0 THEN 'Create' ELSE 'Keep existing' END;
+  IF @InstanceID IS NOT NULL AND EXISTS
+   (SELECT 1 FROM dbo.InstanceInfo WHERE instanceId=@InstanceID AND
+      (instanceName<>@InstanceName OR DB_Type_Id<>@DBTypeId OR Env_key<>@EnvKey OR ISNULL(Used_By,'')<>@UsedBy))
+    THROW 51000,'Existing instance conflicts with name/type/environment/source; review manually.',1;
+  IF EXISTS (SELECT d.Dbname FROM @DBs s JOIN dbo.DBinfo d WITH (UPDLOCK,HOLDLOCK)
+             ON d.instanceId=@InstanceID AND d.Dbname COLLATE Latin1_General_100_BIN2=s.Dbname
+             GROUP BY d.Dbname COLLATE Latin1_General_100_BIN2,d.Dbname HAVING COUNT(*)>1)
+    THROW 51000,'Duplicate existing database match.',1;
+  IF EXISTS (SELECT 1 FROM @DBs s JOIN dbo.DBinfo d ON d.instanceId=@InstanceID AND d.Dbname COLLATE Latin1_General_100_BIN2=s.Dbname
+             WHERE d.hostid<>@HostID OR d.Env_Key<>@EnvKey OR ISNULL(d.Used_By,'')<>@UsedBy)
+    THROW 51000,'Existing database conflicts with host/environment/source.',1;
+  UPDATE s SET ExistingID=d.dbid,ProposedAction=CASE WHEN d.dbid IS NULL THEN 'Create' ELSE 'Keep existing' END
+   FROM @DBs s LEFT JOIN dbo.DBinfo d ON d.instanceId=@InstanceID AND d.Dbname COLLATE Latin1_General_100_BIN2=s.Dbname;
+  IF @RegisterApplications=1 AND EXISTS
+    (SELECT s.Dbname FROM @DBs s JOIN dbo.AppInfo a WITH (UPDLOCK,HOLDLOCK) ON a.dbid=s.ExistingID AND a.AppTypeID=@AppTypeID
+     AND ((@BAIID IS NOT NULL AND a.BAI_ID=@BAIID AND ISNULL(a.BAI_Env_Key,'')=ISNULL(@BAIEnvKey,''))
+       OR (@BAIID IS NULL AND a.BAI_ID IS NULL AND a.AppName=@AppName)) GROUP BY s.Dbname HAVING COUNT(*)>1)
+    THROW 51000,'Duplicate existing application match.',1;
+  INSERT @Results VALUES ('Host',@Host,@HostAction,@HostID),('Instance',@InstanceName,@InstanceAction,@InstanceID);
+  IF @Preview=1
+  BEGIN
+   INSERT @Results SELECT 'Database',Dbname,ProposedAction,ExistingID FROM @DBs;
+   IF @RegisterApplications=1
+     INSERT @Results SELECT 'Application',s.Dbname+N' -> '+@AppName,
+      CASE WHEN a.AppId IS NULL THEN 'Create' ELSE 'Keep existing' END,a.AppId
+      FROM @DBs s LEFT JOIN dbo.AppInfo a ON a.dbid=s.ExistingID AND a.AppTypeID=@AppTypeID
+       AND ((@BAIID IS NOT NULL AND a.BAI_ID=@BAIID AND ISNULL(a.BAI_Env_Key,'')=ISNULL(@BAIEnvKey,''))
+         OR (@BAIID IS NULL AND a.BAI_ID IS NULL AND a.AppName=@AppName));
+   COMMIT TRANSACTION;
+   SELECT @Host AS Hostname,@IPAddress AS IPAddress,@OS AS ReportOS,@Version AS ReportVersion,@DBVersionId AS DBVersionId,
+          @Port AS Port,@InRecovery AS InRecovery,@EnvKey AS EnvKey,@PlatformType AS PlatformType,
+          @RegisterApplications AS RegisterApplications;
+   SELECT * FROM @Results ORDER BY Seq;
+   SELECT Dbname,OwnerName,IsTemplate FROM @DBs ORDER BY Dbname;
+   SELECT CASE WHEN @RegisterApplications=0 THEN 'Application registration skipped; report values are placeholders.' ELSE 'One supplied application will be associated with every selected database.' END AS Note,
+          CASE WHEN @InstanceID IS NULL THEN 'New instance: apply requires approved portal credentials or explicit approved empty-string policy.' ELSE 'Existing credentials will be preserved.' END AS CredentialNote;
+   RETURN;
+  END;
+  -- Apply: all writes below are rolled back if any subsequent operation fails.
+  IF @InstanceID IS NULL
+  BEGIN
+   IF @AllowEmptyCredentials=1 AND @PortalUsername IS NULL AND @PortalPassword IS NULL
+     SELECT @PortalUsername='',@PortalPassword='',@IsEncrypted=0;
+   IF @PortalUsername IS NULL OR @PortalPassword IS NULL
+     THROW 51000,'Supply new-instance portal credentials; placeholders/NULL are not accepted.',1;
+   IF DATALENGTH(CONVERT(varchar(max),@PortalUsername))>20 OR DATALENGTH(CONVERT(varchar(max),@PortalPassword))>20
+     THROW 51000,'Portal credential storage exceeds varchar(20); do not truncate.',1;
+   IF @PortalUsername LIKE '%<%' OR @PortalPassword LIKE '%<%' OR @PortalUsername LIKE '%REPLACE%' OR @PortalPassword LIKE '%REPLACE%'
+     THROW 51000,'Replace portal credential placeholders.',1;
+   IF @AllowEmptyCredentials=0 AND (@PortalUsername='' OR @PortalPassword='')
+     THROW 51000,'Empty credentials require explicit approved policy flag.',1;
+  END;
+  IF @HostID IS NULL
+  BEGIN
+   INSERT dbo.HostInfo (hostname,IPAddress,DASD,BootDASD,OS_Id,OS_Version_Id,OS_Pak_Id,ClusterID,status_key,Platform_Type,Used_By)
+   VALUES (@Host,@IPAddress,0,0,@OSId,@OSVersionId,@OSPakId,NULL,@StatusKey,@PlatformType,@UsedBy);
+   SET @HostID=CONVERT(int,SCOPE_IDENTITY());
+  END;
+  IF @InstanceID IS NULL
+  BEGIN
+   INSERT dbo.InstanceInfo (hostId,instanceName,DB_Type_Id,Username,Password,Port,DB_Version_Id,DB_Pak_Id,Status_Key,Env_key,Used_By,IsEncrypted)
+   VALUES (@HostID,@InstanceName,@DBTypeId,@PortalUsername,@PortalPassword,@Port,@DBVersionId,@DBPakId,@StatusKey,@EnvKey,@UsedBy,@IsEncrypted);
+   SET @InstanceID=CONVERT(int,SCOPE_IDENTITY());
+  END;
+  UPDATE @Results SET RecordID=@HostID WHERE Entity='Host';
+  UPDATE @Results SET RecordID=@InstanceID WHERE Entity='Instance';
+  DECLARE dbcur CURSOR LOCAL FAST_FORWARD FOR SELECT Dbname,ExistingID,ProposedAction FROM @DBs ORDER BY Dbname;
+  DECLARE @Action varchar(20);
+  OPEN dbcur;
+  FETCH NEXT FROM dbcur INTO @Name,@DBID,@Action;
+  WHILE @@FETCH_STATUS=0
+  BEGIN
+   IF @DBID IS NULL
+   BEGIN
+    INSERT dbo.DBinfo (hostid,instanceId,Dbname,Env_Key,Status_Key,Archival_key,Used_By)
+    VALUES (@HostID,@InstanceID,CONVERT(varchar(256),@Name),@EnvKey,@StatusKey,@ArchivalKey,@UsedBy);
+    SET @DBID=CONVERT(int,SCOPE_IDENTITY());
+   END;
+   INSERT @Results VALUES ('Database',@Name,@Action,@DBID);
+   IF @RegisterApplications=1
+   BEGIN
+    SET @AppID=NULL;
+    SELECT @AppID=MIN(AppId) FROM dbo.AppInfo WITH (UPDLOCK,HOLDLOCK)
+     WHERE dbid=@DBID AND AppTypeID=@AppTypeID
+      AND ((@BAIID IS NOT NULL AND BAI_ID=@BAIID AND ISNULL(BAI_Env_Key,'')=ISNULL(@BAIEnvKey,''))
+        OR (@BAIID IS NULL AND BAI_ID IS NULL AND AppName=@AppName));
+    SET @Action='Keep existing';
+    IF @AppID IS NULL
+    BEGIN
+     INSERT dbo.AppInfo (dbid,AppTypeID,AppName,Contact_Key,BAI_ID,BAI_Env_Key)
+     VALUES (@DBID,@AppTypeID,@AppName,@ContactKey,@BAIID,@BAIEnvKey);
+     SET @AppID=CONVERT(int,SCOPE_IDENTITY()); SET @Action='Create';
+    END;
+    INSERT @Results VALUES ('Application',@Name+N' -> '+@AppName,@Action,@AppID);
+   END;
+   FETCH NEXT FROM dbcur INTO @Name,@DBID,@Action;
+  END;
+  CLOSE dbcur; DEALLOCATE dbcur;
+  COMMIT TRANSACTION;
+  SELECT * FROM @Results ORDER BY Seq;
+ END TRY
+ BEGIN CATCH
+  IF XACT_STATE()<>0 ROLLBACK TRANSACTION;
+  THROW;
+ END CATCH;
+END;
+GO
