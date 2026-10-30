@@ -1,14 +1,4 @@
 #Requires -Version 5.1
-$env:DBPORTAL_SQL_SERVER = 'YOUR_SQLSERVER,PORT'
-
-[Environment]::SetEnvironmentVariable(
-    'DBPORTAL_SQL_SERVER',
-    $env:DBPORTAL_SQL_SERVER,
-    'User'
-)
-----------------------
-.\Import-DbPortalInventory.ps1
----------------------------------------------------------------------
 <#
 .SYNOPSIS
 Standalone test import of PostgreSQL inventory.txt into DBPortal SQL Server tables.
@@ -159,15 +149,16 @@ try {
     if ($Apply) { Write-Warning "APPLY: missing records will be inserted into $ServerInstance / $Database. Existing records are kept." }
     else { Write-Host "PREVIEW: comparing inventory with $ServerInstance / $Database. No target-table writes." }
     Add-Type -AssemblyName System.Data
+    # Use SQL keyword indexers: PowerShell adapts this builder as a dictionary.
     $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
-    $builder.DataSource = $ServerInstance
-    $builder.InitialCatalog = $Database
-    $builder.ConnectTimeout = 15
-    $builder.ApplicationName = 'DBPortal inventory PowerShell test'
-    $builder.Encrypt = $true
-    $builder.TrustServerCertificate = $false
-    $builder.IntegratedSecurity = ($null -eq $SqlCredential)
-    $connection = [System.Data.SqlClient.SqlConnection]::new($builder.ConnectionString)
+    $builder['Data Source'] = $ServerInstance
+    $builder['Initial Catalog'] = $Database
+    $builder['Connect Timeout'] = 15
+    $builder['Application Name'] = 'DBPortal inventory PowerShell test'
+    $builder['Encrypt'] = $true
+    $builder['TrustServerCertificate'] = $false
+    $builder['Integrated Security'] = ($null -eq $SqlCredential)
+    $connection = [System.Data.SqlClient.SqlConnection]::new($builder.get_ConnectionString())
     if ($null -ne $SqlCredential) {
         $sqlPassword = $SqlCredential.Password.Copy()
         $sqlPassword.MakeReadOnly()
