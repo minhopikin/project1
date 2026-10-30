@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Read-only EDB Postgres Advanced Server post-build validation.
+set -uo pipefail
+export LC_ALL=C
+PORT=${PGPORT:-7432}
+SERVICE=${PG_SERVICE:-edb-as-16}
+EFM_SERVICE=${EFM_SERVICE:-edb-efm-4.10.service}
+EFM_BIN=${EFM_BIN:-/usr/edb/efm-4.10/bin/efm}
+EFM_CLUSTER=${EFM_CLUSTER:-efm}
+OUTDIR=${OUTDIR:-"$PWD/postbuild-$(date +%Y%m%d-%H%M%S)"}
+mkdir -p "$OUTDIR" || exit 1
+chmod 700 "$OUTDIR"
+REPORT="$OUTDIR/results.tsv"; DETAILS="$OUTDIR/details.txt"
+printf 'Check\tStatus\tDetails\n' > "$REPORT"
+: > "$DETAILS"; chmod 600 "$REPORT" "$DETAILS"
+record() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" | tee -a "$REPORT"; }
+section() { printf '\n### %s ###\n' "$1" >> "$DETAILS"; }
+runlog() { printf '\n$'; printf ' %q' "$@"; printf '\n'; "$@" 2>&1 || true; }
+query() { psql -X -qAt -w -p "$PORT" -d edb -v ON_ERROR_STOP=1 -c "$1" 2>>"$DETAILS"; }
+if ! command -v psql >/dev/null 2>&1; then echo 'psql not found in PATH' >&2; exit 2; fi
+HOST=$(hostname -f 2>/dev/null || hostname)
+DATA=$(query 'SHOW data_directory;' || true)
+HBA=$(query 'SHOW hba_file;' || true)
+section 'Host and PostgreSQL'
+printf 'Host: %s\nPort: %s\nData: %s\nHBA: %s\n' "$HOST" "$PORT" "$DATA" "$HBA" >> "$DETAILS"
+if [[ -n "$HBA" && -r "$HBA" ]]; then
+  if grep -Eq '^[[:space:]]*host[[:space:]]+all[[:space:]]+all[[:space:]]+0\.0\.0\.0/0[[:space:]]+reject' "$HBA"; then
+    record 1 REVIEW 'HBA contains catch-all reject; inspect preceding rules and encryption policy'
+  else record 1 REVIEW 'Review pg_hba.conf ordering, allowed CIDRs, auth methods, and hardening baseline'; fi
+  grep -Ev '^([[:space:]]*#|[[:space:]]*$)' "$HBA" >> "$DETAILS" || true
+else record 1 FAIL 'Cannot read active pg_hba.conf'; fi
+section 'Service and access'
+if systemctl is-active --quiet "$SERVICE"; then S=PASS; else S=FAIL; fi
+if query 'SELECT 1;' | grep -qx 1; then A=PASS; else A=FAIL; fi
+[[ "$S" == PASS && "$A" == PASS ]] && record 2 PASS 'Service active and SQL connection successful' || record 2 FAIL "Service=$S SQL=$A (check peer auth and PGUSER)"
+section 'Commvault'
+if pgrep -af 'cvd|cvfwd|commvault' >> "$DETAILS" 2>&1; then record 3 MANUAL 'Local Commvault-related process found; verify client registration and latest successful backup in CommCell'; else record 3 MANUAL 'No recognizable Commvault process; verify agent and backups in CommCell'; fi
+section 'Splunk'
+if pgrep -af '[s]plunkd' >> "$DETAILS" 2>&1; then record 4 PASS 'splunkd process found; verify recent events are searchable in Splunk'; else record 4 FAIL 'splunkd process not found'; fi
+section 'SolarWinds DPA'
+record 5 MANUAL 'Verify instance registration, status, and recent metrics in SolarWinds DPA; local server cannot prove this'
+section 'SSL/TLS'
+SSL=$(query 'SHOW ssl;' || true)
+if [[ "$SSL" == on ]]; then
+  TLS=$(psql -X -w -p "$PORT" -d edb -v ON_ERROR_STOP=1 -At -c 'SELECT ssl,version,cipher FROM pg_stat_ssl WHERE pid=pg_backend_pid();' 2>>"$DETAILS" || true)
+  if [[ "$TLS" == t\|* ]]; then record 6 PASS "SSL on; current connection: $TLS"; else record 6 REVIEW 'SSL enabled but this connection is not confirmed encrypted; test TCP with sslmode=require and verify pg_hba.conf'; fi
+else record 6 FAIL "PostgreSQL ssl=$SSL"; fi
+section 'Guardium'
+if pgrep -afi 'guardium|guard_tap|guardapi|gim' >> "$DETAILS" 2>&1; then record 7 REVIEW 'Guardium-related process found; verify collector connectivity (PRD/DR only)'; else record 7 MANUAL 'No recognizable Guardium process; check only if PRD/DR'; fi
+section 'EFM and replication'
+if systemctl is-active --quiet "$EFM_SERVICE"; then
+  if [[ -x "$EFM_BIN" ]]; then
+    CLUSTER=$("$EFM_BIN" cluster-status "$EFM_CLUSTER" 2>&1 || true)
+    printf '%s\n' "$CLUSTER" >> "$DETAILS"
+    if grep -qi 'standby database(s) in sync with primary' <<< "$CLUSTER"; then record 8 PASS 'EFM active; cluster reports standby in sync (PRD/DR)'; else record 8 REVIEW 'EFM active; inspect cluster-status and replication lag (PRD/DR)'; fi
+  else record 8 REVIEW 'EFM active but EFM binary path not found'; fi
+else record 8 MANUAL 'EFM not active; confirm whether environment requires EFM (PRD/DR)'; fi
+section 'DBPortal inventory'
+{
+  printf 'host=%s\nport=%s\ninstance=enterprisedb\n' "$HOST" "$PORT"
+  query 'SELECT current_setting('\''server_version'\'');' | sed 's/^/version=/'
+  query 'SELECT datname FROM pg_database WHERE datallowconn ORDER BY datname;' | sed 's/^/database=/'
+} > "$OUTDIR/dbportal_inventory.txt"
+chmod 600 "$OUTDIR/dbportal_inventory.txt"
+record 9 MANUAL 'Inventory exported; verify host, instance, databases, and application in DBPortal (no writes)'
+section 'Account profiles'
+if query "SELECT rolname,rolcanlogin,rolsuper,rolreplication FROM pg_roles ORDER BY rolname;" > "$OUTDIR/roles.tsv"; then
+  chmod 600 "$OUTDIR/roles.tsv"
+  record 10 REVIEW 'Role inventory exported; compare EDB profile assignments with approved baseline using psql \\du'
+else record 10 FAIL 'Cannot retrieve role inventory'; fi
+printf '\nOutputs: %s\n' "$OUTDIR"
+printf 'NOTE: REVIEW and MANUAL are not PASS. Check evidence in %s\n' "$DETAILS"
+
+# HTML email summary (local sendmail relay required).
+EMAIL_TO=${EMAIL_TO:-dbarequest@firstcicizens.com}
+EMAIL_FROM=${EMAIL_FROM:-}
+HTML_REPORT="$OUTDIR/postbuild_report.html"
+export HOST PORT
+awk -F '\t' '
+function esc(x){gsub(/&/,"\\&amp;",x);gsub(/</,"\\&lt;",x);gsub(/>/,"\\&gt;",x);gsub(/"/,"\\&quot;",x);return x}
+BEGIN {print "<!doctype html><html><head><meta charset=\"UTF-8\"><style>body{font-family:Arial,sans-serif;color:#222}table{border-collapse:collapse;width:100%}td,th{padding:9px;border:1px solid #ccc;text-align:left}th{background:#16324f;color:white}.PASS{color:green}.FAIL{color:#b00}.MANUAL,.REVIEW{color:#9a6700}</style></head><body>";
+print "<h2>EDB PostgreSQL Post-Build Validation</h2><p><b>Host:</b> " esc(ENVIRON["HOST"]) "<br><b>Port:</b> " esc(ENVIRON["PORT"]) "<br><b>Date:</b> " strftime("%Y-%m-%d %H:%M:%S %Z") "</p>";
+print "<table><tr><th>Check</th><th>Status</th><th>Details</th></tr>"}
+NR>1 {st=$2;if(st!~/^(PASS|FAIL|REVIEW|MANUAL)$/)st="REVIEW"; print "<tr><td>" esc($1) "</td><td class=\"" st "\"><b>" st "</b></td><td>" esc($3) "</td></tr>"; n[st]++}
+END {printf "</table><p><b>Summary:</b> PASS %d | FAIL %d | REVIEW %d | MANUAL %d</p>\n", n["PASS"]+0, n["FAIL"]+0, n["REVIEW"]+0, n["MANUAL"]+0;
+print "<p><i>Manual/review items are not passes. Verify Commvault backup success, SolarWinds registration and DBPortal registration separately. Evidence remains on the server.</i></p></body></html>"}
+' "$REPORT" > "$HTML_REPORT"
+chmod 600 "$HTML_REPORT"
+if [[ ${SEND_EMAIL:-yes} == yes ]]; then
+  if ! command -v sendmail >/dev/null 2>&1; then
+    echo "WARNING: sendmail unavailable; HTML report saved at $HTML_REPORT" >&2
+  elif [[ "$EMAIL_TO" == *$'\n'* || "$EMAIL_TO" == *$'\r'* || "$EMAIL_FROM" == *$'\n'* || "$EMAIL_FROM" == *$'\r'* || "$HOST" == *$'\n'* || "$HOST" == *$'\r'* ]]; then
+    echo 'ERROR: invalid email header' >&2
+  elif { printf 'To: %s\n' "$EMAIL_TO"; [[ -z "$EMAIL_FROM" ]] || printf 'From: %s\n' "$EMAIL_FROM"; printf 'Subject: PostgreSQL Post-Build Validation - %s\nMIME-Version: 1.0\nContent-Type: text/html; charset=UTF-8\n\n' "$HOST"; cat "$HTML_REPORT"; } | sendmail -t -oi; then
+    echo "HTML email submitted to local mail transport for $EMAIL_TO"
+  else
+    echo "WARNING: sendmail failed; HTML report saved at $HTML_REPORT" >&2
+  fi
+fi
