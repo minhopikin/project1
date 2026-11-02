@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 5.1 --new
 <#
 .SYNOPSIS
 Standalone test import of PostgreSQL inventory.txt into DBPortal SQL Server tables.
