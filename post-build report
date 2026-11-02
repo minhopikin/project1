@@ -7,6 +7,18 @@ SERVICE=${PG_SERVICE:-edb-as-16}
 EFM_SERVICE=${EFM_SERVICE:-edb-efm-4.10.service}
 EFM_BIN=${EFM_BIN:-/usr/edb/efm-4.10/bin/efm}
 EFM_CLUSTER=${EFM_CLUSTER:-efm}
+# Hostname naming policy: p = Production/DR, d = Development, q = QA, t = UAT.
+# Unknown prefixes fail closed so Production/DR controls cannot be silently skipped.
+HOST=$(hostname -f 2>/dev/null || hostname)
+SHORT_HOST=${HOST%%.*}
+case "${SHORT_HOST:0:1}" in
+  [pP]) ENVIRONMENT=PRODUCTION_DR ;;
+  [dD]) ENVIRONMENT=DEVELOPMENT ;;
+  [qQ]) ENVIRONMENT=QA ;;
+  [tT]) ENVIRONMENT=UAT ;;
+  *) printf 'ERROR: Unknown hostname prefix for %s; cannot safely classify environment.\n' "$HOST" >&2; exit 2 ;;
+esac
+printf 'Detected environment: %s (host %s)\n' "$ENVIRONMENT" "$HOST"
 OUTDIR=${OUTDIR:-"$PWD/postbuild-$(date +%Y%m%d-%H%M%S)"}
 mkdir -p "$OUTDIR" || exit 1
 chmod 700 "$OUTDIR"
@@ -18,7 +30,6 @@ section() { printf '\n### %s ###\n' "$1" >> "$DETAILS"; }
 runlog() { printf '\n$'; printf ' %q' "$@"; printf '\n'; "$@" 2>&1 || true; }
 query() { psql -X -qAt -w -p "$PORT" -d edb -v ON_ERROR_STOP=1 -c "$1" 2>>"$DETAILS"; }
 if ! command -v psql >/dev/null 2>&1; then echo 'psql not found in PATH' >&2; exit 2; fi
-HOST=$(hostname -f 2>/dev/null || hostname)
 DATA=$(query 'SHOW data_directory;' || true)
 HBA=$(query 'SHOW hba_file;' || true)
 section 'Host and PostgreSQL'
@@ -45,16 +56,35 @@ if [[ "$SSL" == on ]]; then
   TLS=$(psql -X -w -p "$PORT" -d edb -v ON_ERROR_STOP=1 -At -c 'SELECT ssl,version,cipher FROM pg_stat_ssl WHERE pid=pg_backend_pid();' 2>>"$DETAILS" || true)
   if [[ "$TLS" == t\|* ]]; then record 6 PASS "SSL on; current connection: $TLS"; else record 6 REVIEW 'SSL enabled but this connection is not confirmed encrypted; test TCP with sslmode=require and verify pg_hba.conf'; fi
 else record 6 FAIL "PostgreSQL ssl=$SSL"; fi
-section 'Guardium'
-if pgrep -afi 'guardium|guard_tap|guardapi|gim' >> "$DETAILS" 2>&1; then record 7 REVIEW 'Guardium-related process found; verify collector connectivity (PRD/DR only)'; else record 7 MANUAL 'No recognizable Guardium process; check only if PRD/DR'; fi
-section 'EFM and replication'
-if systemctl is-active --quiet "$EFM_SERVICE"; then
-  if [[ -x "$EFM_BIN" ]]; then
-    CLUSTER=$("$EFM_BIN" cluster-status "$EFM_CLUSTER" 2>&1 || true)
-    printf '%s\n' "$CLUSTER" >> "$DETAILS"
-    if grep -qi 'standby database(s) in sync with primary' <<< "$CLUSTER"; then record 8 PASS 'EFM active; cluster reports standby in sync (PRD/DR)'; else record 8 REVIEW 'EFM active; inspect cluster-status and replication lag (PRD/DR)'; fi
-  else record 8 REVIEW 'EFM active but EFM binary path not found'; fi
-else record 8 MANUAL 'EFM not active; confirm whether environment requires EFM (PRD/DR)'; fi
+if [[ "$ENVIRONMENT" == PRODUCTION_DR ]]; then
+  section 'Guardium (Production/DR)'
+  if pgrep -afi 'guardium|guard_tap|guardapi|gim' >> "$DETAILS" 2>&1; then
+    record 7 REVIEW 'Guardium-related process found; confirm agent and collector connectivity'
+  else
+    record 7 FAIL 'No recognizable Guardium process detected on Production/DR server'
+  fi
+  section 'EFM and replication (Production/DR)'
+  if systemctl is-active --quiet "$EFM_SERVICE"; then
+    if [[ -x "$EFM_BIN" ]]; then
+      CLUSTER=$("$EFM_BIN" cluster-status "$EFM_CLUSTER" 2>&1 || true)
+      printf '%s\n' "$CLUSTER" >> "$DETAILS"
+      if grep -qi 'standby database(s) in sync with primary' <<< "$CLUSTER"; then
+        record 8 PASS 'EFM active; cluster reports standby in sync'
+      else
+        record 8 REVIEW 'EFM active; inspect cluster-status and replication lag'
+      fi
+    else
+      record 8 REVIEW 'EFM active but EFM binary path not found'
+    fi
+  else
+    record 8 FAIL 'EFM service is not active on Production/DR server'
+  fi
+else
+  section 'Guardium (Not Applicable)'
+  record 7 N/A "Not applicable in $ENVIRONMENT; Guardium applies to Production/DR"
+  section 'EFM and replication (Not Applicable)'
+  record 8 N/A "Not applicable in $ENVIRONMENT; EFM applies to Production/DR"
+fi
 section 'DBPortal inventory'
 {
   printf 'host=%s\nport=%s\ninstance=enterprisedb\n' "$HOST" "$PORT"
@@ -68,23 +98,93 @@ if query "SELECT rolname,rolcanlogin,rolsuper,rolreplication FROM pg_roles ORDER
   chmod 600 "$OUTDIR/roles.tsv"
   record 10 REVIEW 'Role inventory exported; compare EDB profile assignments with approved baseline using psql \\du'
 else record 10 FAIL 'Cannot retrieve role inventory'; fi
+# Capture full command evidence for each checklist item (read-only).
+EVIDENCE="$OUTDIR/evidence.txt"
+: > "$EVIDENCE"
+chmod 600 "$EVIDENCE"
+evidence_section() { printf '\n========== %s ==========\n' "$1" | tee -a "$EVIDENCE"; }
+evidence_run() {
+  printf '\n$' | tee -a "$EVIDENCE"
+  printf ' %q' "$@" | tee -a "$EVIDENCE"
+  printf '\n' | tee -a "$EVIDENCE"
+  "$@" 2>&1 | tee -a "$EVIDENCE"
+  local rc=${PIPESTATUS[0]}
+  if (( rc != 0 )); then
+    printf '[Command failed, exit code %s]\n' "$rc" | tee -a "$EVIDENCE"
+  fi
+}
+evidence_sql() {
+  printf '\nSQL: %s\n' "$1" | tee -a "$EVIDENCE"
+  psql -X -w -P pager=off -p "$PORT" -d edb -v ON_ERROR_STOP=1 -c "$1" 2>&1 | tee -a "$EVIDENCE"
+  local rc=${PIPESTATUS[0]}
+  if (( rc != 0 )); then
+    printf '[SQL query failed, exit code %s]\n' "$rc" | tee -a "$EVIDENCE"
+  fi
+}
+evidence_section '1. SECURITY HARDENING'
+evidence_run psql -X -w -P pager=off -p "$PORT" -d edb -c 'SHOW hba_file;'
+if [[ -n "$HBA" && -r "$HBA" ]]; then evidence_run cat "$HBA"; fi
+evidence_sql 'SHOW password_encryption;'
+evidence_sql 'SELECT line_number,type,database,user_name,address,auth_method,error FROM pg_hba_file_rules ORDER BY line_number;'
+evidence_section '2. POSTGRESQL SERVICE AND DATABASE ACCESS'
+evidence_run systemctl status "$SERVICE" --no-pager -l
+evidence_run psql -X -w -P pager=off -p "$PORT" -d edb -c '\l'
+evidence_section '3. COMMVAULT BACKUPS — EXTERNAL CONFIRMATION REQUIRED'
+evidence_run pgrep -af 'cvd|cvfwd|commvault'
+evidence_section '4. SPLUNK FORWARDER'
+evidence_run pgrep -af '[s]plunkd'
+evidence_section '5. SOLARWINDS DPA — EXTERNAL CONFIRMATION REQUIRED'
+evidence_section '6. SSL/TLS'
+evidence_sql 'SHOW ssl;'
+evidence_sql 'SHOW ssl_cert_file;'
+evidence_sql 'SHOW ssl_key_file;'
+evidence_sql 'SELECT ssl,version,cipher FROM pg_stat_ssl WHERE pid=pg_backend_pid();'
+if [[ "$ENVIRONMENT" == PRODUCTION_DR ]]; then
+  evidence_section '7. GUARDIUM (PRODUCTION/DR)'
+  evidence_run pgrep -afi 'guardium|guard_tap|guardapi|gim'
+  evidence_section '8. EFM REPLICATION (PRODUCTION/DR)'
+  evidence_run systemctl status "$EFM_SERVICE" --no-pager -l
+  if [[ -x "$EFM_BIN" ]]; then evidence_run "$EFM_BIN" cluster-status "$EFM_CLUSTER"; fi
+  evidence_sql 'SELECT pg_is_in_recovery();'
+else
+  evidence_section '7. GUARDIUM'
+  printf 'N/A - Guardium is not required in %s\n' "$ENVIRONMENT" | tee -a "$EVIDENCE"
+  evidence_section '8. EFM REPLICATION'
+  printf 'N/A - EFM is not required in %s\n' "$ENVIRONMENT" | tee -a "$EVIDENCE"
+fi
+evidence_section '9. DBPORTAL INVENTORY — EXTERNAL CONFIRMATION REQUIRED'
+evidence_run cat "$OUTDIR/dbportal_inventory.txt"
+evidence_section '10. ACCOUNT PROFILE STATUS'
+evidence_run psql -X -w -P pager=off -p "$PORT" -d edb -c '\du'
+evidence_run cat "$OUTDIR/roles.tsv"
+
 printf '\nOutputs: %s\n' "$OUTDIR"
+printf 'Full evidence: %s\n' "$EVIDENCE"
 printf 'NOTE: REVIEW and MANUAL are not PASS. Check evidence in %s\n' "$DETAILS"
 
 # HTML email summary (local sendmail relay required).
-EMAIL_TO=${EMAIL_TO:-dbarequest@firstcicizens.com}
+EMAIL_TO=${EMAIL_TO:-dbarequest@firstcicizenbank.com}
 EMAIL_FROM=${EMAIL_FROM:-}
 HTML_REPORT="$OUTDIR/postbuild_report.html"
-export HOST PORT
+export HOST PORT ENVIRONMENT
 awk -F '\t' '
 function esc(x){gsub(/&/,"\\&amp;",x);gsub(/</,"\\&lt;",x);gsub(/>/,"\\&gt;",x);gsub(/"/,"\\&quot;",x);return x}
-BEGIN {print "<!doctype html><html><head><meta charset=\"UTF-8\"><style>body{font-family:Arial,sans-serif;color:#222}table{border-collapse:collapse;width:100%}td,th{padding:9px;border:1px solid #ccc;text-align:left}th{background:#16324f;color:white}.PASS{color:green}.FAIL{color:#b00}.MANUAL,.REVIEW{color:#9a6700}</style></head><body>";
-print "<h2>EDB PostgreSQL Post-Build Validation</h2><p><b>Host:</b> " esc(ENVIRON["HOST"]) "<br><b>Port:</b> " esc(ENVIRON["PORT"]) "<br><b>Date:</b> " strftime("%Y-%m-%d %H:%M:%S %Z") "</p>";
+BEGIN {print "<!doctype html><html><head><meta charset=\"UTF-8\"><style>body{font-family:Arial,sans-serif;color:#222}table{border-collapse:collapse;width:100%}td,th{padding:9px;border:1px solid #ccc;text-align:left}th{background:#16324f;color:white}.PASS{color:green}.FAIL{color:#b00}.MANUAL,.REVIEW{color:#9a6700}.NA{color:#777}</style></head><body>";
+print "<h2>EDB PostgreSQL Post-Build Validation</h2><p><b>Host:</b> " esc(ENVIRON["HOST"]) "<br><b>Environment:</b> " esc(ENVIRON["ENVIRONMENT"]) "<br><b>Port:</b> " esc(ENVIRON["PORT"]) "<br><b>Date:</b> " strftime("%Y-%m-%d %H:%M:%S %Z") "</p>";
 print "<table><tr><th>Check</th><th>Status</th><th>Details</th></tr>"}
-NR>1 {st=$2;if(st!~/^(PASS|FAIL|REVIEW|MANUAL)$/)st="REVIEW"; print "<tr><td>" esc($1) "</td><td class=\"" st "\"><b>" st "</b></td><td>" esc($3) "</td></tr>"; n[st]++}
-END {printf "</table><p><b>Summary:</b> PASS %d | FAIL %d | REVIEW %d | MANUAL %d</p>\n", n["PASS"]+0, n["FAIL"]+0, n["REVIEW"]+0, n["MANUAL"]+0;
+NR>1 {st=$2;if(st!~/^(PASS|FAIL|REVIEW|MANUAL|N/A)$/)st="REVIEW"; print "<tr><td>" esc($1) "</td><td class=\"" (st=="N/A"?"NA":st) "\"><b>" st "</b></td><td>" esc($3) "</td></tr>"; n[st]++}
+END {printf "</table><p><b>Summary:</b> PASS %d | FAIL %d | REVIEW %d | MANUAL %d | N/A %d</p>\n", n["PASS"]+0, n["FAIL"]+0, n["REVIEW"]+0, n["MANUAL"]+0, n["N/A"]+0;
 print "<p><i>Manual/review items are not passes. Verify Commvault backup success, SolarWinds registration and DBPortal registration separately. Evidence remains on the server.</i></p></body></html>"}
 ' "$REPORT" > "$HTML_REPORT"
+# Append the actual captured command output to the HTML email/report.
+python3 - "$HTML_REPORT" "$EVIDENCE" <<'PYHTML'
+import html,sys
+from pathlib import Path
+report=Path(sys.argv[1]); evidence=Path(sys.argv[2])
+content=report.read_text(encoding='utf-8')
+block='<h2>Detailed Command Evidence</h2><p>Read-only command outputs captured on the server. External systems require independent verification.</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f7fa;padding:12px;border:1px solid #ccc;font-size:12px">'+html.escape(evidence.read_text(encoding='utf-8',errors='replace'))+'</pre>'
+report.write_text(content.replace('</body></html>',block+'</body></html>'),encoding='utf-8')
+PYHTML
 chmod 600 "$HTML_REPORT"
 if [[ ${SEND_EMAIL:-yes} == yes ]]; then
   if ! command -v sendmail >/dev/null 2>&1; then
