@@ -2,8 +2,9 @@
 #
 # Read-only EDB Postgres Advanced Server post-build validation.
 #
-# Runs 10 checks, writes a TSV summary, detailed logs and raw command evidence
-# to OUTDIR, then emails an HTML report via the local sendmail relay.
+# Runs 10 checks, writes results.tsv, dbportal_inventory.txt and an HTML report
+# (with raw command evidence embedded) to OUTDIR, then emails the report via
+# the local sendmail relay. Scratch files are deleted on exit.
 #
 # Environment overrides:
 #   PGPORT, PG_SERVICE, EFM_SERVICE, EFM_BIN, EFM_CLUSTER,
@@ -54,12 +55,18 @@ OUTDIR=${OUTDIR:-"$PWD/postbuild-$(date +%Y%m%d-%H%M%S)"}
 mkdir -p "$OUTDIR" || exit 1
 chmod 700 "$OUTDIR"
 
+# Kept in OUTDIR:
 REPORT="$OUTDIR/results.tsv"                    # one line per check
-DETAILS="$OUTDIR/details.txt"                   # supporting detail / stderr
-EVIDENCE="$OUTDIR/evidence.txt"                 # full command output
 INVENTORY="$OUTDIR/dbportal_inventory.txt"      # for manual DBPortal comparison
-ROLES="$OUTDIR/roles.tsv"                       # role inventory
-HTML_REPORT="$OUTDIR/postbuild_report.html"
+HTML_REPORT="$OUTDIR/postbuild_report.html"     # summary + embedded evidence
+
+# Scratch files live in a private temp dir that is deleted on exit, so
+# details.txt, evidence.txt and roles.tsv never remain in OUTDIR.
+WORKDIR=$(mktemp -d) || exit 1
+trap 'rm -rf "$WORKDIR"' EXIT
+DETAILS="$WORKDIR/details.txt"                  # supporting detail / stderr
+EVIDENCE="$WORKDIR/evidence.txt"                # full command output
+ROLES="$WORKDIR/roles.tsv"                      # role inventory
 
 printf 'Check\tStatus\tDetails\n' > "$REPORT"
 : > "$DETAILS"
@@ -285,7 +292,7 @@ check_account_profiles() {
 
   if query 'SELECT rolname,rolcanlogin,rolsuper,rolreplication FROM pg_roles ORDER BY rolname;' > "$ROLES"; then
     chmod 600 "$ROLES"
-    record 10 REVIEW 'Role inventory exported; compare EDB profile assignments with approved baseline using psql \\du'
+    record 10 REVIEW 'Role inventory collected (see report evidence); compare EDB profile assignments with approved baseline using psql \\du'
   else
     record 10 FAIL 'Cannot retrieve role inventory'
   fi
@@ -409,7 +416,7 @@ END {
   printf "<p><b>Summary:</b> PASS %d | FAIL %d | REVIEW %d | MANUAL %d | N/A %d</p>\n", \
          count["PASS"]+0, count["FAIL"]+0, count["REVIEW"]+0, \
          count["MANUAL"]+0, count["N/A"]+0
-  print "<p><i>Manual/review items are not passes. Verify Commvault backup success, SolarWinds registration and DBPortal registration separately. Evidence remains on the server.</i></p></body></html>"
+  print "<p><i>Manual/review items are not passes. Verify Commvault backup success, SolarWinds registration and DBPortal registration separately. Command evidence is included in this report.</i></p></body></html>"
 }
 AWK
 )
@@ -497,8 +504,8 @@ main() {
   collect_evidence
 
   printf '\nOutputs: %s\n' "$OUTDIR"
-  printf 'Full evidence: %s\n' "$EVIDENCE"
-  printf 'NOTE: REVIEW and MANUAL are not PASS. Check evidence in %s\n' "$DETAILS"
+  printf 'Full evidence is embedded in: %s\n' "$HTML_REPORT"
+  printf 'NOTE: REVIEW and MANUAL are not PASS. Check the evidence in %s\n' "$HTML_REPORT"
 
   build_html_report
   send_email
