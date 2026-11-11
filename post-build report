@@ -61,12 +61,11 @@ INVENTORY="$OUTDIR/dbportal_inventory.txt"      # for manual DBPortal comparison
 HTML_REPORT="$OUTDIR/postbuild_report.html"     # summary + embedded evidence
 
 # Scratch files live in a private temp dir that is deleted on exit, so
-# details.txt, evidence.txt and roles.tsv never remain in OUTDIR.
+# details.txt and evidence.txt never remain in OUTDIR.
 WORKDIR=$(mktemp -d) || exit 1
 trap 'rm -rf "$WORKDIR"' EXIT
 DETAILS="$WORKDIR/details.txt"                  # supporting detail / stderr
 EVIDENCE="$WORKDIR/evidence.txt"                # full command output
-ROLES="$WORKDIR/roles.tsv"                      # role inventory
 
 printf 'Check\tStatus\tDetails\n' > "$REPORT"
 : > "$DETAILS"
@@ -290,9 +289,8 @@ check_dbportal_inventory() {
 check_account_profiles() {
   section 'Account profiles'
 
-  if query 'SELECT rolname,rolcanlogin,rolsuper,rolreplication FROM pg_roles ORDER BY rolname;' > "$ROLES"; then
-    chmod 600 "$ROLES"
-    record 10 REVIEW 'Role inventory collected (see report evidence); compare EDB profile assignments with approved baseline using psql \\du'
+  if query 'SELECT 1 FROM pg_roles LIMIT 1;' >/dev/null; then
+    record 10 REVIEW 'Role inventory available (see \du in report evidence); compare EDB profile assignments with approved baseline'
   else
     record 10 FAIL 'Cannot retrieve role inventory'
   fi
@@ -359,7 +357,6 @@ collect_evidence() {
 
   evidence_section '10. ACCOUNT PROFILE STATUS'
   evidence_run psql -X -w -P pager=off -p "$PORT" -d edb -c '\du'
-  evidence_run cat "$ROLES"
 }
 
 # =============================================================================
