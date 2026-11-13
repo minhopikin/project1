@@ -1,0 +1,223 @@
+/*
+    usp_RegisterPostgresServer
+    ---------------------------------------------------------------------------
+    Registers (or refreshes) one Postgres server in DBPortal in a single
+    transaction:  HostInfo -> InstanceInfo -> DBinfo -> AppInfo
+
+    - Idempotent: running it twice with the same payload creates no duplicates.
+    - Takes readable names (e.g. 'Redhat 9', 'Production') and resolves the
+      integer lookup keys itself. If a lookup value is missing it fails with a
+      message listing every missing value (most FKs in this schema are
+      WITH NOCHECK, so the database would NOT catch a wrong key on its own).
+    - Instance username/password are placeholders ('N/A'); no credential is
+      ever taken from the payload.
+    - CName on DBinfo is intentionally not touched.
+    - Application contact: explicit contact_name if supplied, otherwise
+      inherited from the most recent AppInfo row with the same BAI_ID and
+      BAI_Env_Key. Fails if neither is available.
+
+    Requires SQL Server 2016 SP1+ (CREATE OR ALTER, OPENJSON, JSON_VALUE) and
+    database compatibility level >= 130.
+
+    Payload shape (JSON):
+    {
+      "used_by": "FCB",                       -- optional, default 'FCB'
+      "env": "Production",                    -- EnvInfo.Env_NM
+      "host": { "hostname": "...", "ip": "...", "os": "Linux",
+                "os_version": "Redhat 9", "os_pak": "None/Unknown",
+                "platform": "Physical" },
+      "instance": { "name": "enterprisedb", "port": 7432, "db_type": "Postgres",
+                    "db_version": "PostgreSQL 16.15", "db_pak": "N/A" },
+      "default_app": { "app_type_id": 1, "app_name": "EDB Postgres",
+                       "bai_id": 12508, "bai_env": "PROD",
+                       "contact_name": null },             -- contact optional
+      "databases": [ { "name": "edb" }, { "name": "postgres" },
+                     { "name": "mosaicservicing",
+                       "app": { "app_name": "Smart Assist (a.k.a Mosaic)",
+                                "bai_id": 15001, "bai_env": "PROD" } } ]
+    }
+*/
+CREATE OR ALTER PROCEDURE dbo.usp_RegisterPostgresServer
+    @Json               nvarchar(max),
+    @AutoCreateVersions bit = 1      -- 1 = add unknown OS/DB version strings to the lookup tables
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE
+        @hostname  varchar(250)  = JSON_VALUE(@Json,'$.host.hostname'),
+        @ip        varchar(20)   = JSON_VALUE(@Json,'$.host.ip'),
+        @os        nvarchar(100) = JSON_VALUE(@Json,'$.host.os'),
+        @osVer     nvarchar(100) = JSON_VALUE(@Json,'$.host.os_version'),
+        @osPak     nvarchar(100) = JSON_VALUE(@Json,'$.host.os_pak'),
+        @platform  nvarchar(100) = JSON_VALUE(@Json,'$.host.platform'),
+        @usedBy    varchar(4)    = ISNULL(JSON_VALUE(@Json,'$.used_by'), 'FCB'),
+        @env       nvarchar(100) = JSON_VALUE(@Json,'$.env'),
+        @instName  varchar(50)   = JSON_VALUE(@Json,'$.instance.name'),
+        @port      int           = TRY_CONVERT(int, JSON_VALUE(@Json,'$.instance.port')),
+        @dbType    nvarchar(100) = JSON_VALUE(@Json,'$.instance.db_type'),
+        @dbVer     nvarchar(100) = JSON_VALUE(@Json,'$.instance.db_version'),
+        @dbPak     nvarchar(100) = JSON_VALUE(@Json,'$.instance.db_pak'),
+        @user      varchar(20)   = 'N/A',     -- placeholder; never taken from the payload
+        @pwd       varchar(20)   = 'N/A',     -- placeholder; never taken from the payload
+        @defAppTypeId int          = ISNULL(TRY_CONVERT(int, JSON_VALUE(@Json,'$.default_app.app_type_id')), 1),
+        @defAppName   varchar(300) = JSON_VALUE(@Json,'$.default_app.app_name'),
+        @defBaiId     int          = TRY_CONVERT(int, JSON_VALUE(@Json,'$.default_app.bai_id')),
+        @defBaiEnv    varchar(25)  = JSON_VALUE(@Json,'$.default_app.bai_env'),
+        @defContact   nvarchar(200)= JSON_VALUE(@Json,'$.default_app.contact_name');
+
+    IF @hostname IS NULL OR @ip IS NULL OR @instName IS NULL OR @port IS NULL
+        THROW 50001, 'DBPortal registration: hostname, ip, instance name and port are required.', 1;
+
+    DECLARE @osId int, @osVerId int, @osPakId int, @platId int,
+            @dbTypeId int, @dbVerId int, @dbPakId int,
+            @envKey int, @online int, @HostID int, @InstanceId int,
+            @err nvarchar(1000) = N'', @msg nvarchar(2000);
+
+    BEGIN TRAN;
+
+    -- ---- Lookups -------------------------------------------------------
+    SELECT @osId     = OS_Id         FROM dbo.OS         WHERE OS_Nm         = @os;
+    SELECT @osPakId  = OS_Pak_Id     FROM dbo.OSPak      WHERE OS_Pak_Nm     = @osPak;
+    SELECT @platId   = Platform_Type FROM dbo.Platform   WHERE Platform_Name = @platform;
+    SELECT @dbTypeId = DB_Type_Id    FROM dbo.DBType     WHERE DB_Type_Nm    = @dbType;
+    SELECT @dbPakId  = DB_Pak_Id     FROM dbo.DBPak      WHERE DB_Pak_Nm     = @dbPak;
+    SELECT @envKey   = Env_Key       FROM dbo.EnvInfo    WHERE Env_NM        = @env;
+    SELECT @online   = Status_Key    FROM dbo.StatusInfo WHERE Status_NM     = N'Online';
+
+    -- OS / DB versions: look up; optionally create (minor versions change often)
+    SELECT @osVerId = OS_Version_Id FROM dbo.OSVersion WHERE OS_Version_Nm = @osVer;
+    IF @osVerId IS NULL AND @AutoCreateVersions = 1 AND @osVer IS NOT NULL
+    BEGIN
+        IF COLUMNPROPERTY(OBJECT_ID('dbo.OSVersion'),'OS_Version_Id','IsIdentity') = 1
+            INSERT dbo.OSVersion (OS_Version_Nm) VALUES (@osVer);
+        ELSE
+            INSERT dbo.OSVersion (OS_Version_Id, OS_Version_Nm)
+            SELECT ISNULL(MAX(OS_Version_Id),0)+1, @osVer FROM dbo.OSVersion WITH (TABLOCKX, HOLDLOCK);
+        SELECT @osVerId = OS_Version_Id FROM dbo.OSVersion WHERE OS_Version_Nm = @osVer;
+    END
+
+    SELECT @dbVerId = DB_Version_Id FROM dbo.DBVersion WHERE DB_Version_Nm = @dbVer;
+    IF @dbVerId IS NULL AND @AutoCreateVersions = 1 AND @dbVer IS NOT NULL
+    BEGIN
+        IF COLUMNPROPERTY(OBJECT_ID('dbo.DBVersion'),'DB_Version_Id','IsIdentity') = 1
+            INSERT dbo.DBVersion (DB_Version_Nm) VALUES (@dbVer);
+        ELSE
+            INSERT dbo.DBVersion (DB_Version_Id, DB_Version_Nm)
+            SELECT ISNULL(MAX(DB_Version_Id),0)+1, @dbVer FROM dbo.DBVersion WITH (TABLOCKX, HOLDLOCK);
+        SELECT @dbVerId = DB_Version_Id FROM dbo.DBVersion WHERE DB_Version_Nm = @dbVer;
+    END
+
+    IF @osId     IS NULL SET @err += N' OS=['         + ISNULL(@os,N'NULL')       + N']';
+    IF @osVerId  IS NULL SET @err += N' OS_Version=[' + ISNULL(@osVer,N'NULL')    + N']';
+    IF @osPakId  IS NULL SET @err += N' OS_Pak=['     + ISNULL(@osPak,N'NULL')    + N']';
+    IF @platId   IS NULL SET @err += N' Platform=['   + ISNULL(@platform,N'NULL') + N']';
+    IF @dbTypeId IS NULL SET @err += N' DB_Type=['    + ISNULL(@dbType,N'NULL')   + N']';
+    IF @dbVerId  IS NULL SET @err += N' DB_Version=[' + ISNULL(@dbVer,N'NULL')    + N']';
+    IF @dbPakId  IS NULL SET @err += N' DB_Pak=['     + ISNULL(@dbPak,N'NULL')    + N']';
+    IF @envKey   IS NULL SET @err += N' Env=['        + ISNULL(@env,N'NULL')      + N']';
+    IF @online   IS NULL SET @err += N' Status Online not found';
+    IF @err <> N''
+    BEGIN
+        SET @msg = N'DBPortal registration: lookup value(s) not found:' + @err;
+        THROW 50002, @msg, 1;
+    END
+
+    -- ---- Host ----------------------------------------------------------
+    SELECT @HostID = HostID FROM dbo.HostInfo WHERE hostname = @hostname;
+    IF @HostID IS NULL
+    BEGIN
+        INSERT dbo.HostInfo (hostname, IPAddress, DASD, BootDASD, OS_Id, OS_Version_Id,
+                             OS_Pak_Id, status_key, Platform_Type, Used_By)
+        VALUES (@hostname, @ip, 0, 0, @osId, @osVerId, @osPakId, @online, @platId, @usedBy);
+        SET @HostID = SCOPE_IDENTITY();
+    END
+    ELSE
+        UPDATE dbo.HostInfo
+           SET IPAddress = @ip, OS_Id = @osId, OS_Version_Id = @osVerId, OS_Pak_Id = @osPakId,
+               Platform_Type = @platId, status_key = @online
+         WHERE HostID = @HostID;
+
+    -- ---- Instance (IsEncrypted = the portal's "UseSecureConnection") ---
+    SELECT @InstanceId = instanceId FROM dbo.InstanceInfo
+     WHERE hostId = @HostID AND instanceName = @instName;
+    IF @InstanceId IS NULL
+    BEGIN
+        INSERT dbo.InstanceInfo (hostId, instanceName, DB_Type_Id, Username, Password, Port,
+                                 DB_Version_Id, DB_Pak_Id, Status_Key, Env_key, Used_By, IsEncrypted)
+        VALUES (@HostID, @instName, @dbTypeId, @user, @pwd, @port,
+                @dbVerId, @dbPakId, @online, @envKey, @usedBy, 1);
+        SET @InstanceId = SCOPE_IDENTITY();
+    END
+    ELSE
+        UPDATE dbo.InstanceInfo
+           SET Port = @port, DB_Type_Id = @dbTypeId, DB_Version_Id = @dbVerId,
+               DB_Pak_Id = @dbPakId, Status_Key = @online, Env_key = @envKey, IsEncrypted = 1
+         WHERE instanceId = @InstanceId;
+
+    -- ---- Databases (CName intentionally not touched) -------------------
+    DECLARE @dbs TABLE (name nvarchar(256), app_type_id int, app_name varchar(300),
+                        bai_id int, bai_env varchar(25), contact_name nvarchar(200));
+    INSERT @dbs
+    SELECT name, app_type_id, app_name, bai_id, bai_env, contact_name
+      FROM OPENJSON(@Json,'$.databases')
+           WITH (name         nvarchar(256) '$.name',
+                 app_type_id  int           '$.app.app_type_id',
+                 app_name     varchar(300)  '$.app.app_name',
+                 bai_id       int           '$.app.bai_id',
+                 bai_env      varchar(25)   '$.app.bai_env',
+                 contact_name nvarchar(200) '$.app.contact_name');
+
+    INSERT dbo.DBinfo (hostid, instanceId, Dbname, Env_Key, Status_Key, Used_By)
+    SELECT @HostID, @InstanceId, s.name, @envKey, @online, @usedBy
+      FROM @dbs s
+     WHERE s.name IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM dbo.DBinfo d
+                        WHERE d.hostid = @HostID AND d.instanceId = @InstanceId AND d.Dbname = s.name);
+
+    UPDATE d SET Status_Key = @online, Env_Key = @envKey
+      FROM dbo.DBinfo d JOIN @dbs s ON s.name = d.Dbname
+     WHERE d.hostid = @HostID AND d.instanceId = @InstanceId;
+
+    -- ---- Applications --------------------------------------------------
+    -- Per-database app if given, else default_app.
+    -- Contact: explicit name -> else inherited from an existing registration
+    --          of the same BAI/env -> else error.
+    DECLARE @apps TABLE (dbid int, AppTypeID int, AppName varchar(300),
+                         Contact_Key int, BAI_ID int, BAI_Env_Key varchar(25));
+    INSERT @apps
+    SELECT d.dbid,
+           ISNULL(s.app_type_id, @defAppTypeId),
+           ISNULL(s.app_name,    @defAppName),
+           COALESCE(c.Contact_key, inh.Contact_Key),
+           ISNULL(s.bai_id,      @defBaiId),
+           ISNULL(s.bai_env,     @defBaiEnv)
+      FROM @dbs s
+      JOIN dbo.DBinfo d ON d.hostid = @HostID AND d.instanceId = @InstanceId AND d.Dbname = s.name
+      OUTER APPLY (SELECT TOP 1 Contact_key FROM dbo.AppContact
+                    WHERE ContactName = ISNULL(s.contact_name, @defContact)
+                    ORDER BY Contact_key) c
+      OUTER APPLY (SELECT TOP 1 a.Contact_Key FROM dbo.AppInfo a
+                    WHERE a.BAI_ID = ISNULL(s.bai_id, @defBaiId)
+                      AND ISNULL(a.BAI_Env_Key,'') = ISNULL(ISNULL(s.bai_env, @defBaiEnv),'')
+                    ORDER BY a.AppId DESC) inh;
+
+    IF EXISTS (SELECT 1 FROM @apps WHERE AppName IS NULL OR BAI_ID IS NULL)
+        THROW 50004, 'DBPortal registration: app_name and bai_id are required (default_app or per-database app).', 1;
+    IF EXISTS (SELECT 1 FROM @apps WHERE Contact_Key IS NULL)
+        THROW 50003, 'DBPortal registration: no contact given and no existing registration for this BAI/env to inherit one from.', 1;
+
+    INSERT dbo.AppInfo (dbid, AppTypeID, AppName, Contact_Key, BAI_ID, BAI_Env_Key)
+    SELECT a.dbid, a.AppTypeID, a.AppName, a.Contact_Key, a.BAI_ID, a.BAI_Env_Key
+      FROM @apps a
+     WHERE NOT EXISTS (SELECT 1 FROM dbo.AppInfo x
+                        WHERE x.dbid = a.dbid AND x.BAI_ID = a.BAI_ID
+                          AND ISNULL(x.BAI_Env_Key,'') = ISNULL(a.BAI_Env_Key,''));
+
+    COMMIT;
+
+    SELECT @HostID AS HostID, @InstanceId AS InstanceId,
+           (SELECT COUNT(*) FROM @dbs) AS DatabaseCount;
+END
+GO
